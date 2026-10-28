@@ -62,10 +62,30 @@ else
 
         case "receive":
             <section class="rp-panel">
+                @if (_openOrders.Count > 0)
+                {
+                    <SelectField Label="@T("purchasing.againstOrder")" Value="@_receipt.PurchaseOrderId" ValueChanged="PickOrder" Options="OrderOptions"
+                                 Hint="@T("purchasing.againstOrderHint")" />
+                }
                 <div class="rp-grid-2">
-                    <TextField Label="@T("inventory.supplier")" @bind-Value="_receipt.Supplier" MaxLength="100" />
+                    @if (_receipt.PurchaseOrderId is { Length: > 0 })
+                    {
+                        <TextField Label="@T("inventory.supplier")" Value="@OrderFor(_receipt.PurchaseOrderId)?.SupplierName" Disabled />
+                    }
+                    else if (_suppliers.Count > 0)
+                    {
+                        <SelectField Label="@T("inventory.supplier")" @bind-Value="_receipt.SupplierId" Options="SupplierOptions" />
+                    }
+                    else
+                    {
+                        <TextField Label="@T("inventory.supplier")" @bind-Value="_receipt.Supplier" MaxLength="100" />
+                    }
                     <TextField Label="@T("inventory.invoice")" @bind-Value="_receipt.Invoice" MaxLength="50" Dir="ltr" />
                 </div>
+                @if (_receipt.PurchaseOrderId is not { Length: > 0 } && _suppliers.Count > 0 && _receipt.SupplierId is not { Length: > 0 })
+                {
+                    <TextField Label="@T("purchasing.otherSupplier")" @bind-Value="_receipt.Supplier" MaxLength="100" />
+                }
                 <div class="rp-label">@T("inventory.lines")</div>
                 @foreach (var line in _receipt.Lines)
                 {
@@ -305,6 +325,8 @@ else
     private sealed class ReceiptDraft
     {
         public string? Supplier { get; set; }
+        public string? SupplierId { get; set; }
+        public string? PurchaseOrderId { get; set; }
         public string? Invoice { get; set; }
         public string? Notes { get; set; }
         public List<ReceiptLine> Lines { get; set; } = [new()];
@@ -362,6 +384,12 @@ else
         public List<RecipeDraftLine> Lines { get; set; } = [];
     }
 
+    /// <summary>?receive={purchase order id}: opens the Receive tab with that order's outstanding items.</summary>
+    [SupplyParameterFromQuery(Name = "receive")] public Guid? ReceiveOrder { get; set; }
+
+    private IReadOnlyList<SupplierDto> _suppliers = [];
+    private IReadOnlyList<PurchaseOrderDto> _openOrders = [];
+
     private string _tab = "stock";
     private IReadOnlyList<StockLevelDto> _levels = [];
     private IReadOnlyList<InventoryItemDto> _items = [];
@@ -393,7 +421,34 @@ else
             yield return "history";
             yield return "items";
             if (User.CanAny(Permissions.Menu.Manage, Permissions.Inventory.Adjust, Permissions.Reports.Inventory)) yield return "recipes";
+            // Pages of their own.
+            yield return "purchasing";
+            if (User.Branches.Count > 1) yield return "transfers";
         }
+    }
+
+    private IEnumerable<(string, string)> SupplierOptions =>
+        new[] { ("", T("purchasing.noSupplierRecord")) }.Concat(_suppliers.Where(s => s.IsActive).Select(s => (s.Id.ToString(), s.Name)));
+
+    private IEnumerable<(string, string)> OrderOptions =>
+        new[] { ("", T("purchasing.noOrder")) }.Concat(_openOrders.Select(o => (o.Id.ToString(), $"{o.Number} · {o.SupplierName}")));
+
+    private PurchaseOrderDto? OrderFor(string? id) => Guid.TryParse(id, out var guid) ? _openOrders.FirstOrDefault(o => o.Id == guid) : null;
+
+    /// <summary>Fills the lines with what is still to come on the order, in the units it was ordered in.</summary>
+    private void PickOrder(string? id)
+    {
+        _receipt.PurchaseOrderId = id;
+        if (OrderFor(id) is not { } order) return;
+        _receipt.SupplierId = order.SupplierId.ToString();
+        _receipt.Lines = order.Lines.Where(l => l.ReceivedBase < l.QuantityBase).Select(l => new ReceiptLine
+        {
+            ItemId = l.ItemId.ToString(),
+            Quantity = Format.Number(Math.Round((l.QuantityBase - l.ReceivedBase) / (l.QuantityBase / l.Quantity), 3)),
+            Unit = l.Unit,
+            Cost = Format.Number(l.UnitCost)
+        }).ToList();
+        if (_receipt.Lines.Count == 0) _receipt.Lines.Add(new ReceiptLine());
     }
 
     private IEnumerable<InventoryItemDto> ActiveItems => _items.Where(i => i.IsActive);
@@ -404,14 +459,22 @@ else
         var levels = Api.GetStockLevelsAsync();
         var items = Api.GetInventoryItemsAsync();
         (_levels, _items) = (await levels, await items);
+        if (ReceiveOrder is not null && User.Can(Permissions.Inventory.Receive)) _tab = "receive";
         await LoadTabAsync();
+        if (ReceiveOrder is { } orderId) PickOrder(orderId.ToString());
     }
 
     private async Task LoadTabAsync()
     {
         switch (_tab)
         {
-            case "receive": _receipts = await Api.GetStockReceiptsAsync(); break;
+            case "receive":
+                var receipts = Api.GetStockReceiptsAsync();
+                var suppliers = Api.GetSuppliersAsync();
+                var orders = Api.GetPurchaseOrdersAsync();
+                (_receipts, _suppliers) = (await receipts, await suppliers);
+                _openOrders = (await orders).Where(o => o.Status is PurchaseOrderStatus.Ordered or PurchaseOrderStatus.PartiallyReceived).ToList();
+                break;
             case "count": _counts = await Api.GetStockCountsAsync(); break;
             case "history": _movements = await Api.GetStockMovementsAsync(_historyItem); break;
             case "recipes":
@@ -425,6 +488,11 @@ else
 
     private async Task SwitchAsync(string tab)
     {
+        if (tab is "purchasing" or "transfers")
+        {
+            Nav.NavigateTo($"app/inventory/{tab}");
+            return;
+        }
         _tab = tab;
         Success = null;
         await RunAsync(LoadTabAsync);
@@ -452,10 +520,13 @@ else
     {
         var lines = _receipt.Lines.Where(l => ItemFor(l.ItemId) is not null)
             .Select(l => new ReceiptLineRequest(Guid.Parse(l.ItemId!), Format.ParseNumber(l.Quantity) ?? 0, l.Unit ?? "", Format.ParseNumber(l.Cost) ?? 0)).ToList();
-        await Api.ReceiveStockAsync(new CreateStockReceiptRequest(_receipt.RequestId, _receipt.Supplier, _receipt.Invoice, _receipt.Notes, lines));
+        Guid? orderId = Guid.TryParse(_receipt.PurchaseOrderId, out var o) ? o : null;
+        Guid? supplierId = orderId is null && Guid.TryParse(_receipt.SupplierId, out var sup) ? sup : null;
+        await Api.ReceiveStockAsync(new CreateStockReceiptRequest(_receipt.RequestId, supplierId is null ? _receipt.Supplier : null, _receipt.Invoice, _receipt.Notes, lines,
+            supplierId, orderId));
         _receipt = new ReceiptDraft();
         _levels = await Api.GetStockLevelsAsync();
-        _receipts = await Api.GetStockReceiptsAsync();
+        await LoadTabAsync();
     }, T("inventory.received"));
 
     private Guid _countRequest = Guid.NewGuid();

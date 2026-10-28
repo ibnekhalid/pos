@@ -69,6 +69,12 @@ public class RestaurantDbContext(DbContextOptions<RestaurantDbContext> options, 
     public DbSet<DealBranch> DealBranches => Set<DealBranch>();
     public DbSet<OrderDealApplication> OrderDealApplications => Set<OrderDealApplication>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<StockTransfer> StockTransfers => Set<StockTransfer>();
+    public DbSet<StockTransferLine> StockTransferLines => Set<StockTransferLine>();
+    public DbSet<Reservation> Reservations => Set<Reservation>();
 
     /// <summary>
     /// Read by the query filters on every query (EF parameterises it per query). Guid.Empty when no

@@ -73,9 +73,13 @@ public record StockMovementDto(Guid Id, Guid ItemId, string ItemName, string Bas
 /// <param name="UnitCost">Cost per entered unit (per kg if the quantity is in kg).</param>
 public record ReceiptLineRequest(Guid InventoryItemId, decimal Quantity, string Unit, decimal UnitCost);
 
-public record CreateStockReceiptRequest(Guid ClientRequestId, string? Supplier, string? InvoiceNumber, string? Notes, IReadOnlyList<ReceiptLineRequest> Lines);
+/// <param name="SupplierId">A supplier record (its name is copied to Supplier); or just a Supplier name.</param>
+/// <param name="PurchaseOrderId">Goods arriving for this purchase order: its lines' received quantities are filled in.</param>
+public record CreateStockReceiptRequest(Guid ClientRequestId, string? Supplier, string? InvoiceNumber, string? Notes, IReadOnlyList<ReceiptLineRequest> Lines,
+    Guid? SupplierId = null, Guid? PurchaseOrderId = null);
 
-public record StockReceiptDto(Guid Id, string? Supplier, string? InvoiceNumber, decimal TotalCost, int LineCount, DateTimeOffset At, string? ByName);
+public record StockReceiptDto(Guid Id, string? Supplier, string? InvoiceNumber, decimal TotalCost, int LineCount, DateTimeOffset At, string? ByName,
+    Guid? PurchaseOrderId = null);
 
 /// <param name="Type">Wastage (Quantity = how much was thrown away) or Adjustment (Quantity signed: + found, − missing).</param>
 public record StockAdjustmentRequest(Guid ClientRequestId, Guid InventoryItemId, StockMovementType Type, decimal Quantity, string Unit, string Reason,

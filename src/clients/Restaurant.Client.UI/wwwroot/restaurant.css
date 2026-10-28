@@ -439,3 +439,14 @@ textarea.rp-input { resize: vertical; }
 }
 .rp-nav-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--rp-warning); color: #fff; font-size: .72rem; font-weight: 700; text-align: center; }
 .rp-alert-panel { border-color: color-mix(in srgb, var(--rp-warning) 40%, var(--rp-border)); }
+
+/* ---------- deferred items, batch 2: tables, bookings, purchasing */
+.rp-table-picker button.dirty { background: #FEF3C7; border-color: var(--rp-warning); border-style: dashed; }
+.rp-table-picker button.reserved { background: var(--rp-primary-soft); border-color: var(--rp-primary); }
+.rp-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .8rem; color: var(--rp-muted); }
+.rp-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--rp-border); vertical-align: -2px; margin-inline-end: 4px; }
+.rp-legend .busy { background: var(--rp-accent-soft); border-color: var(--rp-accent); }
+.rp-legend .dirty { background: #FEF3C7; border-color: var(--rp-warning); }
+.rp-legend .reserved { background: var(--rp-primary-soft); border-color: var(--rp-primary); }
+.rp-progress { height: 6px; border-radius: 3px; background: var(--rp-border); overflow: hidden; min-width: 60px; }
+.rp-progress span { display: block; height: 100%; background: var(--rp-success); }

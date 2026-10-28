@@ -67,9 +67,10 @@ public record PaymentsReportDto(
     IReadOnlyList<PaymentsByDayDto> ByDay, IReadOnlyList<PaymentsByCashierDto> ByCashier, IReadOnlyList<RefundEntryDto> Refunds);
 
 /// <summary>An item's movements in the period, in its base unit. Consumed is net of reversals (voids).</summary>
+/// <param name="Transferred">Net stock moved between branches: + in, − out (a cancelled transfer nets to zero).</param>
 public record StockActivityDto(
     Guid ItemId, string Name, string BaseUnit, decimal Received, decimal ReceivedValue, decimal Consumed, decimal ConsumedValue,
-    decimal Wasted, decimal WastedValue, decimal Adjusted, decimal CountVariance, decimal VarianceValue);
+    decimal Wasted, decimal WastedValue, decimal Adjusted, decimal CountVariance, decimal VarianceValue, decimal Transferred = 0);
 
 /// <param name="InventoryValue">Estimated: Σ on hand × weighted-average cost (current, not as of the period end).</param>
 public record InventoryReportDto(

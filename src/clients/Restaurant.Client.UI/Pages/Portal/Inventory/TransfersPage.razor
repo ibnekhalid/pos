@@ -1,0 +1,181 @@
+@page "/app/inventory/transfers"
+@inherits PageBase
+@using Restaurant.Contracts.Inventory
+@* Stock sent between branches. It leaves the sender at once and arrives when the other branch receives it. *@
+
+<PageTitle>@T("transfers.title")</PageTitle>
+<PageHeader Title="@T("transfers.title")" Subtitle="@T("inventory.subtitle", ("branch", User.CurrentBranch?.Name ?? ""))" BackHref="app/inventory">
+    <Actions>
+        @if (CanManage && Destinations.Any()) { <RpButton Icon="send-outline" OnClick="NewTransfer">@T("transfers.send")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!CanView)
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && _draft is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+
+    @if (_transfers.Count == 0)
+    {
+        <EmptyState Icon="swap-horizontal-outline" Title="@T("transfers.noneTitle")" Text="@T("transfers.noneText")" />
+    }
+    else
+    {
+        <div class="rp-list">
+            @foreach (var t in _transfers)
+            {
+                var incoming = t.ToBranchId == User.CurrentBranch?.Id;
+                <div class="rp-list-item rp-wrap">
+                    <Icon Name="@DirectionIcon(incoming)" Size="24" Color="@DirectionColor(incoming)" />
+                    <span class="rp-grow">
+                        <span class="rp-strong">@t.Number · @(incoming ? T("transfers.from", ("branch", t.FromBranchName)) : T("transfers.to", ("branch", t.ToBranchName)))</span>
+                        <Badge Kind="@StatusKind(t.Status)">@T($"transferStatus.{t.Status}")</Badge>
+                        <span class="rp-hint">@string.Join(", ", t.Lines.Select(l => $"{l.ItemName} {UnitCatalog.Describe(l.Quantity, l.BaseUnit)}"))</span>
+                        <span class="rp-hint">@Format.DateTime(t.SentAt)@(t.SentByName is null ? "" : $" · {t.SentByName}") · @Money(t.TotalCost)@(t.ReceivedAt is null ? "" : " · " + T("transfers.receivedAt", ("time", Format.DateTime(t.ReceivedAt)), ("name", t.ReceivedByName ?? "")))@(t.Notes is null ? "" : $" · {t.Notes}")</span>
+                    </span>
+                    @if (CanManage && t.Status == StockTransferStatus.InTransit)
+                    {
+                        @if (incoming)
+                        {
+                            <RpButton Small Loading="Busy" Icon="download-outline" OnClick="() => ReceiveAsync(t)">@T("transfers.receive")</RpButton>
+                        }
+                        else
+                        {
+                            <RpButton Small Variant="ghost" OnClick="() => _cancelling = t">@T("transfers.callBack")</RpButton>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+<Dialog Open="_draft is not null" OpenChanged="open => { if (!open) _draft = null; }" Title="@T("transfers.send")" Wide Busy="Busy">
+    <ChildContent>
+        @if (_draft is not null)
+        {
+            <SelectField Label="@T("transfers.toBranch")" @bind-Value="_draft.ToBranchId" Options="Destinations.Select(b => (b.Id.ToString(), b.Name))" />
+            <div class="rp-label">@T("transfers.items")</div>
+            @foreach (var line in _draft.Lines)
+            {
+                var level = LevelFor(line.ItemId);
+                <div class="rp-row rp-mb rp-wrap">
+                    <select class="rp-input rp-boxed rp-grow" value="@line.ItemId" @onchange="e => { line.ItemId = e.Value?.ToString(); line.Unit = ItemFor(line.ItemId)?.BaseUnit; }" aria-label="@T("inventory.item")">
+                        <option value="">@T("inventory.chooseItem")</option>
+                        @foreach (var item in _items.Where(i => i.IsActive)) { <option value="@item.Id">@item.Name</option> }
+                    </select>
+                    <input class="rp-input rp-boxed" style="width:90px" inputmode="decimal" placeholder="@T("inventory.qty")" @bind="line.Quantity" aria-label="@T("inventory.qty")" />
+                    <UnitSelect Item="ItemFor(line.ItemId)" @bind-Value="line.Unit" />
+                    @if (level is not null) { <span class="rp-hint rp-nowrap">@T("transfers.onHand", ("qty", UnitCatalog.Describe(level.OnHand, level.BaseUnit)))</span> }
+                    <button class="rp-icon-btn" @onclick="() => _draft.Lines.Remove(line)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                </div>
+            }
+            <RpButton Small Variant="secondary" Icon="add" OnClick="() => _draft.Lines.Add(new Line())">@T("inventory.addLine")</RpButton>
+            <TextField Class="rp-mt" Label="@T("inventory.notes")" @bind-Value="_draft.Notes" MaxLength="300" />
+            <p class="rp-hint">@T("transfers.hint")</p>
+            @if (Error is not null) { <Notice Kind="danger">@Error</Notice> }
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _draft = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" Icon="send-outline" OnClick="SendAsync">@T("transfers.send")</RpButton>
+    </Footer>
+</Dialog>
+
+<ConfirmDialog Open="_cancelling is not null" OpenChanged="open => { if (!open) _cancelling = null; }" Title="@T("transfers.callBackTitle")"
+               Message="@T("transfers.callBackText", ("number", _cancelling?.Number ?? ""))" ConfirmText="@T("transfers.callBack")" OnConfirm="CancelAsync" />
+
+@code {
+    private sealed class Line
+    {
+        public string? ItemId { get; set; }
+        public string? Quantity { get; set; }
+        public string? Unit { get; set; }
+    }
+
+    private sealed class Draft
+    {
+        public string? ToBranchId { get; set; }
+        public string? Notes { get; set; }
+        public List<Line> Lines { get; set; } = [new()];
+        public Guid RequestId { get; } = Guid.NewGuid();
+    }
+
+    private IReadOnlyList<StockTransferDto> _transfers = [];
+    private IReadOnlyList<InventoryItemDto> _items = [];
+    private IReadOnlyList<StockLevelDto> _levels = [];
+    private Draft? _draft;
+    private StockTransferDto? _cancelling;
+
+    private bool CanView => User.CanAny(Permissions.Inventory.Receive, Permissions.Inventory.Adjust, Permissions.Reports.Inventory);
+    private bool CanManage => User.CanAny(Permissions.Inventory.Receive, Permissions.Inventory.Adjust);
+
+    private IEnumerable<BranchSummaryDto> Destinations => User.Branches.Where(b => b.Id != User.CurrentBranch?.Id);
+
+    protected override async Task LoadAsync()
+    {
+        if (!CanView) return;
+        var transfers = Api.GetTransfersAsync();
+        var items = Api.GetInventoryItemsAsync();
+        var levels = Api.GetStockLevelsAsync();
+        (_transfers, _items, _levels) = (await transfers, await items, await levels);
+    }
+
+    private InventoryItemDto? ItemFor(string? id) => Guid.TryParse(id, out var guid) ? _items.FirstOrDefault(i => i.Id == guid) : null;
+
+    private StockLevelDto? LevelFor(string? id) => Guid.TryParse(id, out var guid) ? _levels.FirstOrDefault(l => l.ItemId == guid) : null;
+
+    private void NewTransfer()
+    {
+        Error = null;
+        _draft = new Draft { ToBranchId = Destinations.FirstOrDefault()?.Id.ToString() };
+    }
+
+    private async Task SendAsync()
+    {
+        var d = _draft!;
+        StockTransferDto? sent = null;
+        var ok = await RunAsync(async () =>
+        {
+            var lines = d.Lines.Where(l => ItemFor(l.ItemId) is not null)
+                .Select(l => new TransferLineRequest(Guid.Parse(l.ItemId!), Format.ParseNumber(l.Quantity) ?? 0, l.Unit ?? "")).ToList();
+            sent = await Api.SendTransferAsync(new CreateStockTransferRequest(d.RequestId, Guid.TryParse(d.ToBranchId, out var to) ? to : Guid.Empty, d.Notes, lines));
+            _draft = null;
+            await LoadAsync();
+        });
+        if (ok && sent is not null) Success = T("transfers.sent", ("number", sent.Number), ("branch", sent.ToBranchName));
+    }
+
+    private static string DirectionIcon(bool incoming) => incoming ? "arrow-down-circle-outline" : "arrow-up-circle-outline";
+
+    private static string DirectionColor(bool incoming) => incoming ? "var(--rp-success)" : "var(--rp-primary)";
+
+    private static string StatusKind(StockTransferStatus s) => s switch
+    {
+        StockTransferStatus.InTransit => "warning",
+        StockTransferStatus.Received => "success",
+        _ => "neutral"
+    };
+
+    private Task ReceiveAsync(StockTransferDto t) => RunAsync(async () =>
+    {
+        await Api.ReceiveTransferAsync(t.Id);
+        await LoadAsync();
+    }, T("transfers.received", ("number", t.Number)));
+
+    private Task CancelAsync() => RunAsync(async () =>
+    {
+        var t = _cancelling!;
+        _cancelling = null;
+        await Api.CancelTransferAsync(t.Id);
+        await LoadAsync();
+    }, T("transfers.calledBack"));
+}

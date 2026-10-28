@@ -16,6 +16,7 @@ public static class AppSections
         new("pos", "nav.pos", "fast-food-outline", 3, "nav.posSummary", [Permissions.Orders.Create], true),
         new("kitchen", "nav.kitchen", "flame-outline", 3, "nav.kitchenSummary", [Permissions.Kitchen.View], true),
         new("orders", "nav.orders", "receipt-outline", 3, "nav.ordersSummary", [Permissions.Orders.Create, Permissions.Orders.Edit, Permissions.Payments.Take], true),
+        new("reservations", "nav.reservations", "calendar-outline", 5, "nav.reservationsSummary", [Permissions.Orders.Create], true),
         new("sessions", "nav.sessions", "time-outline", 3, "nav.sessionsSummary", [Permissions.Sessions.Start, Permissions.Sessions.Close, Permissions.Sessions.CashMovements], true),
         new("menu", "nav.menu", "restaurant-outline", 3, "nav.menuSummary", [Permissions.Menu.Manage, Permissions.Menu.Availability], true),
         new("deals", "nav.deals", "pricetags-outline", 4, "nav.dealsSummary", [Permissions.Deals.View, Permissions.Deals.Manage], true),

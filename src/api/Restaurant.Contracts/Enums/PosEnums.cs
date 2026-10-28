@@ -84,3 +84,11 @@ public enum PrintKind
     Receipt = 0,
     KitchenTicket = 1
 }
+
+public enum ReservationStatus
+{
+    Booked = 0,
+    Seated = 1,
+    Cancelled = 2,
+    NoShow = 3
+}

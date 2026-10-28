@@ -26,6 +26,13 @@ public static class AuditActions
     public const string StaffInviteAccepted = "staff.invite_accepted";
     public const string StaffPinSet = "staff.pin_set";
     public const string OwnershipTransferred = "ownership.transferred";
+    public const string SupplierSaved = "supplier.saved";
+    public const string PurchaseOrderSaved = "purchase_order.saved";
+    public const string PurchaseOrderOrdered = "purchase_order.ordered";
+    public const string PurchaseOrderCancelled = "purchase_order.cancelled";
+    public const string StockTransferSent = "stock_transfer.sent";
+    public const string StockTransferReceived = "stock_transfer.received";
+    public const string StockTransferCancelled = "stock_transfer.cancelled";
     public const string DeviceRegistered = "device.registered";
     public const string DeviceRevoked = "device.revoked";
     public const string DeviceUpdated = "device.updated";

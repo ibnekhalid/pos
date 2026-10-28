@@ -63,6 +63,12 @@ public interface IApplicationDbContext
     DbSet<DealBranch> DealBranches { get; }
     DbSet<OrderDealApplication> OrderDealApplications { get; }
     DbSet<Customer> Customers { get; }
+    DbSet<Supplier> Suppliers { get; }
+    DbSet<PurchaseOrder> PurchaseOrders { get; }
+    DbSet<PurchaseOrderLine> PurchaseOrderLines { get; }
+    DbSet<StockTransfer> StockTransfers { get; }
+    DbSet<StockTransferLine> StockTransferLines { get; }
+    DbSet<Reservation> Reservations { get; }
 
     DatabaseFacade Database { get; }
     ChangeTracker ChangeTracker { get; }

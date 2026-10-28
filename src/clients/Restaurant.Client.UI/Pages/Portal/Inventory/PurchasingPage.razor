@@ -1,0 +1,354 @@
+@page "/app/inventory/purchasing"
+@inherits PageBase
+@inject StockAlerts Alerts
+@using Restaurant.Contracts.Inventory
+@* Purchase orders for the selected branch and the restaurant's suppliers. Goods are received on the
+   inventory screen's Receive tab, against an order picked there. *@
+
+<PageTitle>@T("purchasing.title")</PageTitle>
+<PageHeader Title="@T("purchasing.title")" Subtitle="@T("inventory.subtitle", ("branch", User.CurrentBranch?.Name ?? ""))" BackHref="app/inventory">
+    <Actions>
+        @if (CanManage && _tab == "orders") { <RpButton Icon="add" OnClick="() => EditOrder(null)" Disabled="_suppliers.All(s => !s.IsActive)">@T("purchasing.newOrder")</RpButton> }
+        @if (CanManage && _tab == "suppliers") { <RpButton Icon="add" OnClick="() => EditSupplier(null)">@T("purchasing.addSupplier")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!CanView)
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    <div class="rp-tabs">
+        <button class="@TabClass(OrdersTab)" @onclick="() => _tab = OrdersTab">@T("purchasing.orders")</button>
+        <button class="@TabClass(SuppliersTab)" @onclick="() => _tab = SuppliersTab">@T("purchasing.suppliers")</button>
+    </div>
+    @if (Error is not null && _order is null && _supplier is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+
+    @if (_tab == "orders")
+    {
+        @if (_suppliers.Count == 0)
+        {
+            <EmptyState Icon="business-outline" Title="@T("purchasing.noSuppliersTitle")" Text="@T("purchasing.noSuppliersText")" />
+        }
+        else if (_orders.Count == 0)
+        {
+            <EmptyState Icon="document-text-outline" Title="@T("purchasing.noOrdersTitle")" Text="@T("purchasing.noOrdersText")" />
+        }
+        else
+        {
+            <div class="rp-list">
+                @foreach (var po in _orders)
+                {
+                    <div class="rp-list-item rp-wrap">
+                        <span class="rp-grow">
+                            <span class="rp-strong">@po.Number · @po.SupplierName</span>
+                            <Badge Kind="@StatusKind(po.Status)">@T($"poStatus.{po.Status}")</Badge>
+                            <span class="rp-hint">@T("inventory.lineCount", ("n", po.Lines.Count.ToString())) · @Money(po.Total)@(po.ExpectedDate is { } d ? " · " + T("purchasing.expected", ("date", d.ToString("ddd d MMM"))) : "")@(po.CreatedByName is null ? "" : $" · {po.CreatedByName}")</span>
+                            @if (po.Status is PurchaseOrderStatus.Ordered or PurchaseOrderStatus.PartiallyReceived)
+                            {
+                                <div class="rp-progress rp-mt-sm" style="max-width:240px" title="@T("purchasing.receivedShare", ("pct", ReceivedPct(po).ToString()))"><span style="width:@(ReceivedPct(po))%"></span></div>
+                            }
+                        </span>
+                        <span class="rp-row">
+                            <RpButton Small Variant="ghost" OnClick="() => _viewing = po">@T("purchasing.view")</RpButton>
+                            @if (CanManage)
+                            {
+                                @if (po.Status == PurchaseOrderStatus.Draft)
+                                {
+                                    <RpButton Small Variant="ghost" OnClick="() => EditOrder(po)">@T("common.edit")</RpButton>
+                                    <RpButton Small Variant="secondary" Loading="Busy" OnClick="() => PlaceAsync(po)">@T("purchasing.place")</RpButton>
+                                }
+                                @if (po.Status is PurchaseOrderStatus.Ordered or PurchaseOrderStatus.PartiallyReceived && User.Can(Permissions.Inventory.Receive))
+                                {
+                                    <a class="rp-btn small" href="app/inventory?receive=@po.Id">@T("purchasing.receive")</a>
+                                }
+                                @if (po.Status is not (PurchaseOrderStatus.Received or PurchaseOrderStatus.Cancelled))
+                                {
+                                    <RpButton Small Variant="ghost" OnClick="() => _cancelling = po">@T("common.cancel")</RpButton>
+                                }
+                            }
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        @if (_suppliers.Count == 0)
+        {
+            <EmptyState Icon="business-outline" Title="@T("purchasing.noSuppliersTitle")" Text="@T("purchasing.noSuppliersText")" />
+        }
+        else
+        {
+            <table class="rp-table rp-panel">
+                <thead><tr><th>@T("purchasing.supplier")</th><th>@T("purchasing.contact")</th><th>@T("purchasing.phone")</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var s in _suppliers)
+                    {
+                        <tr class="@(s.IsActive ? "" : "rp-dim")">
+                            <td><span class="rp-strong">@s.Name</span> @if (!s.IsActive) { <Badge>@T("common.inactive")</Badge> } <div class="rp-hint">@s.Address</div></td>
+                            <td>@s.ContactName</td>
+                            <td dir="ltr">@s.Phone</td>
+                            <td class="rp-right">@if (CanManage) { <RpButton Small Variant="ghost" OnClick="() => EditSupplier(s)">@T("common.edit")</RpButton> }</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+}
+
+@* ---- purchase order editor ---- *@
+<Dialog Open="_order is not null" OpenChanged="open => { if (!open) _order = null; }" Title="@(_order?.Id is null ? T("purchasing.newOrder") : T("purchasing.editOrder"))" Wide Busy="Busy">
+    <ChildContent>
+        @if (_order is not null)
+        {
+            <div class="rp-grid-2">
+                <SelectField Label="@T("purchasing.supplier")" @bind-Value="_order.SupplierId" Options="_suppliers.Where(s => s.IsActive || s.Id.ToString() == _order.SupplierId).Select(s => (s.Id.ToString(), s.Name))" />
+                <TextField Label="@T("purchasing.expectedDate")" Type="date" @bind-Value="_order.Expected" />
+            </div>
+            <div class="rp-row rp-mb">
+                <span class="rp-label rp-grow" style="margin:0">@T("purchasing.items")</span>
+                @if (Alerts.Items.Count > 0) { <RpButton Small Variant="ghost" Icon="alert-circle-outline" OnClick="AddLowStock">@T("purchasing.addLowStock", ("n", Alerts.Items.Count.ToString()))</RpButton> }
+            </div>
+            @foreach (var line in _order.Lines)
+            {
+                <div class="rp-row rp-mb rp-wrap">
+                    <select class="rp-input rp-boxed rp-grow" value="@line.ItemId" @onchange="e => { line.ItemId = e.Value?.ToString(); line.Unit = ItemFor(line.ItemId)?.BaseUnit; }" aria-label="@T("inventory.item")">
+                        <option value="">@T("inventory.chooseItem")</option>
+                        @foreach (var item in _items.Where(i => i.IsActive)) { <option value="@item.Id">@item.Name</option> }
+                    </select>
+                    <input class="rp-input rp-boxed" style="width:90px" inputmode="decimal" placeholder="@T("inventory.qty")" @bind="line.Quantity" aria-label="@T("inventory.qty")" />
+                    <UnitSelect Item="ItemFor(line.ItemId)" @bind-Value="line.Unit" />
+                    <input class="rp-input rp-boxed" style="width:120px" inputmode="decimal" placeholder="@T("inventory.costPer", ("unit", line.Unit ?? ""))" @bind="line.Cost" aria-label="@T("inventory.unitCost")" />
+                    <button class="rp-icon-btn" @onclick="() => _order.Lines.Remove(line)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                </div>
+            }
+            <div class="rp-row">
+                <RpButton Small Variant="secondary" Icon="add" OnClick="() => _order.Lines.Add(new OrderLine())">@T("inventory.addLine")</RpButton>
+                <span class="rp-grow"></span>
+                <span class="rp-strong">@T("inventory.receiptTotal", ("total", Money(_order.Total)))</span>
+            </div>
+            <TextField Class="rp-mt" Label="@T("inventory.notes")" @bind-Value="_order.Notes" MaxLength="500" />
+            @if (Error is not null) { <Notice Kind="danger">@Error</Notice> }
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _order = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveOrderAsync">@T("purchasing.saveDraft")</RpButton>
+    </Footer>
+</Dialog>
+
+@* ---- one order, printable ---- *@
+<Dialog Open="_viewing is not null" OpenChanged="open => { if (!open) _viewing = null; }" Title="@($"{_viewing?.Number} · {_viewing?.SupplierName}")" Wide>
+    <ChildContent>
+        @if (_viewing is { } po)
+        {
+            <div id="rp-po-print">
+                <div class="rp-report-print-title"><h1>@T("purchasing.order") @po.Number — @Brand.DisplayName</h1><p>@User.CurrentBranch?.Name</p></div>
+                <p>
+                    <span class="rp-strong">@po.SupplierName</span> @if (po.SupplierPhone is not null) { <span dir="ltr">· @po.SupplierPhone</span> }<br />
+                    <span class="rp-hint">@T($"poStatus.{po.Status}") · @Format.Date(po.OrderedAt ?? po.CreatedAt)@(po.ExpectedDate is { } d ? " · " + T("purchasing.expected", ("date", d.ToString("ddd d MMM yyyy"))) : "")</span>
+                </p>
+                <table class="rp-table">
+                    <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("inventory.qty")</th><th class="rp-right">@T("inventory.unitCost")</th><th class="rp-right">@T("receipt.total")</th><th class="rp-right">@T("purchasing.received")</th></tr></thead>
+                    <tbody>
+                        @foreach (var l in po.Lines)
+                        {
+                            <tr>
+                                <td>@l.ItemName</td>
+                                <td class="rp-right rp-nowrap">@Format.Number(l.Quantity) @l.Unit</td>
+                                <td class="rp-right">@Money(l.UnitCost)</td>
+                                <td class="rp-right">@Money(l.LineTotal)</td>
+                                <td class="rp-right rp-nowrap">@UnitCatalog.Describe(l.ReceivedBase, l.BaseUnit) / @UnitCatalog.Describe(l.QuantityBase, l.BaseUnit)</td>
+                            </tr>
+                        }
+                        <tr class="rp-strong"><td colspan="3">@T("receipt.total")</td><td class="rp-right">@Money(po.Total)</td><td></td></tr>
+                    </tbody>
+                </table>
+                @if (po.Notes is not null) { <p class="rp-mt">@po.Notes</p> }
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" Icon="print-outline" OnClick="PrintOrderAsync">@T("reports.print")</RpButton>
+        <RpButton OnClick="() => _viewing = null">@T("common.close")</RpButton>
+    </Footer>
+</Dialog>
+
+@* ---- supplier editor ---- *@
+<Dialog Open="_supplier is not null" OpenChanged="open => { if (!open) _supplier = null; }" Title="@(_supplier?.Id is null ? T("purchasing.addSupplier") : T("purchasing.editSupplier"))" Busy="Busy">
+    <ChildContent>
+        @if (_supplier is not null)
+        {
+            <TextField Label="@T("purchasing.supplier")" @bind-Value="_supplier.Name" MaxLength="100" Error="@FieldError("Name")" />
+            <div class="rp-grid-2">
+                <TextField Label="@T("purchasing.contact")" @bind-Value="_supplier.Contact" MaxLength="100" />
+                <TextField Label="@T("purchasing.phone")" @bind-Value="_supplier.Phone" MaxLength="30" Type="tel" Dir="ltr" />
+            </div>
+            <TextField Label="@T("purchasing.address")" @bind-Value="_supplier.Address" MaxLength="300" />
+            <TextField Label="@T("inventory.notes")" @bind-Value="_supplier.Notes" MaxLength="500" Multiline />
+            <CheckBox Label="@T("common.active")" @bind-Value="_supplier.Active" />
+            @if (Error is not null) { <Notice Kind="danger">@Error</Notice> }
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _supplier = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveSupplierAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+<ConfirmDialog Open="_cancelling is not null" OpenChanged="open => { if (!open) _cancelling = null; }" Title="@T("purchasing.cancelTitle")"
+               Message="@T("purchasing.cancelText", ("number", _cancelling?.Number ?? ""))" ConfirmText="@T("purchasing.cancelOrder")" Destructive OnConfirm="CancelAsync" />
+
+@code {
+    [Inject] private UiInterop Ui { get; set; } = default!;
+
+    private sealed class OrderLine
+    {
+        public string? ItemId { get; set; }
+        public string? Quantity { get; set; }
+        public string? Unit { get; set; }
+        public string? Cost { get; set; }
+    }
+
+    private sealed class OrderDraft
+    {
+        public Guid? Id { get; init; }
+        public string? SupplierId { get; set; }
+        public string? Expected { get; set; }
+        public string? Notes { get; set; }
+        public List<OrderLine> Lines { get; set; } = [new()];
+        public decimal Total => Lines.Sum(l => (Format.ParseNumber(l.Quantity) ?? 0) * (Format.ParseNumber(l.Cost) ?? 0));
+    }
+
+    private sealed class SupplierDraft
+    {
+        public Guid? Id { get; init; }
+        public string? Name { get; set; }
+        public string? Contact { get; set; }
+        public string? Phone { get; set; }
+        public string? Address { get; set; }
+        public string? Notes { get; set; }
+        public bool Active { get; set; } = true;
+    }
+
+    private const string OrdersTab = "orders", SuppliersTab = "suppliers";
+    private string _tab = OrdersTab;
+
+    private string TabClass(string tab) => _tab == tab ? "active" : "";
+
+    private async Task PrintOrderAsync() => await Ui.PrintElementAsync("rp-po-print", null);
+    private IReadOnlyList<PurchaseOrderDto> _orders = [];
+    private IReadOnlyList<SupplierDto> _suppliers = [];
+    private IReadOnlyList<InventoryItemDto> _items = [];
+    private OrderDraft? _order;
+    private SupplierDraft? _supplier;
+    private PurchaseOrderDto? _viewing;
+    private PurchaseOrderDto? _cancelling;
+
+    private bool CanView => User.CanAny(Permissions.Inventory.Receive, Permissions.Inventory.Adjust, Permissions.Reports.Inventory);
+    private bool CanManage => User.CanAny(Permissions.Inventory.Receive, Permissions.Inventory.Adjust);
+
+    protected override async Task LoadAsync()
+    {
+        if (!CanView) return;
+        var orders = Api.GetPurchaseOrdersAsync();
+        var suppliers = Api.GetSuppliersAsync();
+        var items = Api.GetInventoryItemsAsync();
+        (_orders, _suppliers, _items) = (await orders, await suppliers, await items);
+        if (_suppliers.Count == 0) _tab = "suppliers";
+        await Alerts.RefreshAsync();
+    }
+
+    private InventoryItemDto? ItemFor(string? id) => Guid.TryParse(id, out var guid) ? _items.FirstOrDefault(i => i.Id == guid) : null;
+
+    private static string StatusKind(PurchaseOrderStatus s) => s switch
+    {
+        PurchaseOrderStatus.Draft => "neutral",
+        PurchaseOrderStatus.Ordered => "brand",
+        PurchaseOrderStatus.PartiallyReceived => "warning",
+        PurchaseOrderStatus.Received => "success",
+        _ => "danger"
+    };
+
+    private static int ReceivedPct(PurchaseOrderDto po)
+    {
+        var ordered = po.Lines.Sum(l => l.QuantityBase);
+        return ordered == 0 ? 0 : (int)Math.Round(Math.Min(1, po.Lines.Sum(l => Math.Min(l.ReceivedBase, l.QuantityBase)) / ordered) * 100);
+    }
+
+    private void EditOrder(PurchaseOrderDto? po)
+    {
+        Error = null;
+        _order = po is null
+            ? new OrderDraft { SupplierId = _suppliers.FirstOrDefault(s => s.IsActive)?.Id.ToString() }
+            : new OrderDraft
+            {
+                Id = po.Id,
+                SupplierId = po.SupplierId.ToString(),
+                Expected = po.ExpectedDate?.ToString("yyyy-MM-dd"),
+                Notes = po.Notes,
+                Lines = po.Lines.Select(l => new OrderLine { ItemId = l.ItemId.ToString(), Quantity = Format.Number(l.Quantity), Unit = l.Unit, Cost = Format.Number(l.UnitCost) }).ToList()
+            };
+    }
+
+    /// <summary>Adds what's short at this branch, in the item's base unit, at its last average cost.</summary>
+    private void AddLowStock()
+    {
+        if (_order is null) return;
+        _order.Lines.RemoveAll(l => ItemFor(l.ItemId) is null);
+        foreach (var low in Alerts.Items.Where(a => _order.Lines.All(l => l.ItemId != a.ItemId.ToString())))
+        {
+            _order.Lines.Add(new OrderLine { ItemId = low.ItemId.ToString(), Quantity = Format.Number(Math.Max(low.Shortfall, low.ReorderLevel)), Unit = low.BaseUnit });
+        }
+        if (_order.Lines.Count == 0) _order.Lines.Add(new OrderLine());
+    }
+
+    private Task SaveOrderAsync() => RunAsync(async () =>
+    {
+        var draft = _order!;
+        var lines = draft.Lines.Where(l => ItemFor(l.ItemId) is not null)
+            .Select(l => new PurchaseOrderLineRequest(Guid.Parse(l.ItemId!), Format.ParseNumber(l.Quantity) ?? 0, l.Unit ?? "", Format.ParseNumber(l.Cost) ?? 0)).ToList();
+        DateOnly? expected = DateOnly.TryParse(draft.Expected, System.Globalization.CultureInfo.InvariantCulture, out var date) ? date : null;
+        await Api.SavePurchaseOrderAsync(draft.Id, new SavePurchaseOrderRequest(Guid.TryParse(draft.SupplierId, out var s) ? s : Guid.Empty, expected, draft.Notes, lines));
+        _order = null;
+        _orders = await Api.GetPurchaseOrdersAsync();
+    }, T("common.saved"));
+
+    private Task PlaceAsync(PurchaseOrderDto po) => RunAsync(async () =>
+    {
+        await Api.PlacePurchaseOrderAsync(po.Id);
+        _orders = await Api.GetPurchaseOrdersAsync();
+    }, T("purchasing.placed", ("number", po.Number)));
+
+    private Task CancelAsync() => RunAsync(async () =>
+    {
+        var po = _cancelling!;
+        _cancelling = null;
+        await Api.CancelPurchaseOrderAsync(po.Id);
+        _orders = await Api.GetPurchaseOrdersAsync();
+    });
+
+    private void EditSupplier(SupplierDto? s)
+    {
+        Error = null;
+        _supplier = s is null ? new SupplierDraft()
+            : new SupplierDraft { Id = s.Id, Name = s.Name, Contact = s.ContactName, Phone = s.Phone, Address = s.Address, Notes = s.Notes, Active = s.IsActive };
+    }
+
+    private Task SaveSupplierAsync() => RunAsync(async () =>
+    {
+        var d = _supplier!;
+        await Api.SaveSupplierAsync(d.Id, new SaveSupplierRequest(d.Name ?? "", d.Contact, d.Phone, d.Address, d.Notes, d.Active));
+        _supplier = null;
+        _suppliers = await Api.GetSuppliersAsync();
+    }, T("common.saved"));
+}

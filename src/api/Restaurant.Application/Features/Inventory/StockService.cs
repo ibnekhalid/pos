@@ -146,11 +146,28 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
         }
 
         var items = await LoadItemsAsync(request.Lines.Select(l => l.InventoryItemId), ct);
+
+        // Against a purchase order: it must be this branch's and still waiting for goods; its supplier is the receipt's.
+        PurchaseOrder? order = null;
+        if (request.PurchaseOrderId is { } orderId)
+        {
+            order = await db.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == orderId && p.BranchId == branchId, ct)
+                ?? throw new NotFoundException("Purchase order");
+            if (order.Status is not (PurchaseOrderStatus.Ordered or PurchaseOrderStatus.PartiallyReceived))
+            {
+                throw new ConflictException(order.Status == PurchaseOrderStatus.Draft ? "Place the purchase order before receiving against it." : "This purchase order is closed.");
+            }
+        }
+        var supplierId = order?.SupplierId ?? request.SupplierId;
+        var supplier = supplierId is { } sid ? await db.Suppliers.FirstOrDefaultAsync(s => s.Id == sid, ct) ?? throw new NotFoundException("Supplier") : null;
+
         var receipt = new StockReceipt
         {
             TenantId = tenantId,
             BranchId = branchId,
-            Supplier = Blank(request.Supplier),
+            Supplier = supplier?.Name ?? Blank(request.Supplier),
+            SupplierId = supplier?.Id,
+            PurchaseOrderId = order?.Id,
             InvoiceNumber = Blank(request.InvoiceNumber),
             Notes = Blank(request.Notes),
             ClientRequestId = request.ClientRequestId,
@@ -176,7 +193,16 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
 
             receipt.TotalCost += lineCost;
             db.StockMovements.Add(Movement(tenantId, branchId, item.Id, StockMovementType.Receipt, quantity, unitCost, nameof(StockReceipt), receipt.Id,
-                $"receipt:{receipt.Id}:{i}", null));
+                $"receipt:{receipt.Id}:{i}", order is null ? null : order.Number));
+            if (order?.Lines.FirstOrDefault(l => l.InventoryItemId == item.Id) is { } ordered)
+            {
+                ordered.ReceivedBase += Math.Round(quantity, 3);
+            }
+        }
+        if (order is not null)
+        {
+            // Items not on the order are fine (the supplier sent something extra); the order is done when every line is in.
+            order.Status = order.Lines.All(l => l.ReceivedBase >= l.QuantityBase) ? PurchaseOrderStatus.Received : PurchaseOrderStatus.PartiallyReceived;
         }
 
         audit.Record(AuditActions.StockReceived, nameof(StockReceipt), receipt.Id, after: new { receipt.Supplier, receipt.InvoiceNumber, receipt.TotalCost, receipt.LineCount },
@@ -199,6 +225,166 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
             throw new ConflictException("Stock was updated at the same moment. Try again.");
         }
         return ToDto(receipt, await db.CallerNameAsync(tenant, ct));
+    }
+
+    // ---------------------------------------------------------------- transfers between branches
+
+    /// <summary>The selected branch's transfers, sent or incoming: those in transit first, then the latest 100.</summary>
+    public async Task<IReadOnlyList<StockTransferDto>> TransfersAsync(CancellationToken ct)
+    {
+        var branchId = tenant.RequireBranchId();
+        var mine = db.StockTransfers.Include(t => t.Lines).Where(t => t.FromBranchId == branchId || t.ToBranchId == branchId);
+        var open = await mine.Where(t => t.Status == StockTransferStatus.InTransit).OrderByDescending(t => t.Sequence).ToListAsync(ct);
+        var closed = await mine.Where(t => t.Status != StockTransferStatus.InTransit).OrderByDescending(t => t.Sequence).Take(100).ToListAsync(ct);
+        return await TransferDtosAsync(open.Concat(closed).ToList(), ct);
+    }
+
+    /// <summary>
+    /// Sends stock from the selected branch. It leaves the source now, at the source's average cost, and is
+    /// in transit until the other branch receives it. The source's stock policy applies (Block refuses
+    /// sending more than it has).
+    /// </summary>
+    public async Task<StockTransferDto> SendTransferAsync(CreateStockTransferRequest request, CancellationToken ct)
+    {
+        var tenantId = tenant.RequireTenantId();
+        var branchId = tenant.RequireBranchId();
+        if (await db.StockTransfers.Include(t => t.Lines).FirstOrDefaultAsync(t => t.ClientRequestId == request.ClientRequestId, ct) is { } already)
+        {
+            return (await TransferDtosAsync([already], ct))[0];
+        }
+        if (request.ToBranchId == branchId) throw new ValidationAppException(nameof(request.ToBranchId), "Choose another branch to send to.");
+        if (!await db.Branches.AnyAsync(b => b.Id == request.ToBranchId && b.IsActive, ct)) throw new NotFoundException("Branch");
+        if (request.Lines is not { Count: > 0 }) throw new ValidationAppException(nameof(request.Lines), "Add at least one item.");
+        if (request.Lines.Any(l => l.Quantity <= 0)) throw new ValidationAppException(nameof(request.Lines), "Quantities must be above zero.");
+        if (request.Lines.GroupBy(l => l.InventoryItemId).Any(g => g.Count() > 1)) throw new ValidationAppException(nameof(request.Lines), "Each item can be on the transfer once.");
+        if (request.Notes?.Length > 300) throw new ValidationAppException(nameof(request.Notes), "The note is too long.");
+
+        var items = await LoadItemsAsync(request.Lines.Select(l => l.InventoryItemId), ct);
+        var onHand = await OnHandAsync(branchId, items.Keys, ct);
+        var costs = await BalancesAsync(branchId, items.Keys, ct);
+        var lines = request.Lines.Select(l => (Item: items[l.InventoryItemId], Quantity: Math.Round(ToBase(items[l.InventoryItemId], l.Quantity, l.Unit), 3))).ToList();
+
+        var policy = await db.Branches.Where(b => b.Id == branchId).Select(b => b.InsufficientStock).FirstAsync(ct);
+        var missing = lines.Where(l => onHand.GetValueOrDefault(l.Item.Id) < l.Quantity).Select(l => l.Item.Name).ToList();
+        if (policy == InsufficientStockBehavior.Block && missing.Count > 0)
+        {
+            throw new ConflictException($"Not enough in stock to send: {string.Join(", ", missing)}.");
+        }
+
+        var transfer = new StockTransfer
+        {
+            TenantId = tenantId,
+            FromBranchId = branchId,
+            ToBranchId = request.ToBranchId,
+            Notes = Blank(request.Notes),
+            ClientRequestId = request.ClientRequestId,
+            Sequence = (await db.StockTransfers.MaxAsync(t => (int?)t.Sequence, ct) ?? 0) + 1
+        };
+        transfer.Number = $"TR-{transfer.Sequence:000}";
+        db.StockTransfers.Add(transfer);
+        foreach (var (item, quantity) in lines)
+        {
+            var unitCost = costs.GetValueOrDefault(item.Id)?.AverageCost ?? 0;
+            var line = new StockTransferLine { TenantId = tenantId, StockTransferId = transfer.Id, InventoryItemId = item.Id, Quantity = quantity, UnitCost = unitCost };
+            transfer.Lines.Add(line);
+            db.StockTransferLines.Add(line);
+            transfer.TotalCost += Math.Round(quantity * unitCost, 2);
+            db.StockMovements.Add(Movement(tenantId, branchId, item.Id, StockMovementType.TransferOut, -quantity, unitCost, nameof(StockTransfer), transfer.Id,
+                $"xfer-out:{transfer.Id}:{item.Id}", transfer.Number));
+        }
+
+        audit.Record(AuditActions.StockTransferSent, nameof(StockTransfer), transfer.Id,
+            after: new { transfer.Number, transfer.ToBranchId, transfer.TotalCost, Lines = transfer.Lines.Count }, branchId: branchId);
+        await SaveTransferAsync(ct);
+        return (await TransferDtosAsync([transfer], ct))[0];
+    }
+
+    /// <summary>The destination books what arrived, at the cost it left with; its weighted-average cost follows.</summary>
+    public async Task<StockTransferDto> ReceiveTransferAsync(Guid id, CancellationToken ct)
+    {
+        var branchId = tenant.RequireBranchId();
+        var transfer = await LoadTransferAsync(id, ct);
+        if (transfer.ToBranchId != branchId) throw new ConflictException("Only the branch it was sent to can receive it. Switch to that branch.");
+        if (transfer.Status != StockTransferStatus.InTransit) throw new ConflictException("This transfer has already been received or cancelled.");
+
+        var itemIds = transfer.Lines.Select(l => l.InventoryItemId).ToList();
+        var onHand = await OnHandAsync(branchId, itemIds, ct);
+        var balances = await BalancesAsync(branchId, itemIds, ct);
+        foreach (var line in transfer.Lines)
+        {
+            var balance = Balance(balances, transfer.TenantId, branchId, line.InventoryItemId);
+            var existing = Math.Max(onHand.GetValueOrDefault(line.InventoryItemId), 0);
+            balance.AverageCost = Math.Round((existing * balance.AverageCost + line.Quantity * line.UnitCost) / (existing + line.Quantity), 4);
+            db.StockMovements.Add(Movement(transfer.TenantId, branchId, line.InventoryItemId, StockMovementType.TransferIn, line.Quantity, line.UnitCost,
+                nameof(StockTransfer), transfer.Id, $"xfer-in:{transfer.Id}:{line.InventoryItemId}", transfer.Number));
+        }
+        transfer.Status = StockTransferStatus.Received;
+        transfer.ReceivedAt = clock.GetUtcNow();
+        transfer.ReceivedByUserId = tenant.UserId;
+
+        audit.Record(AuditActions.StockTransferReceived, nameof(StockTransfer), transfer.Id, after: new { transfer.Number }, branchId: branchId);
+        await SaveTransferAsync(ct);
+        return (await TransferDtosAsync([transfer], ct))[0];
+    }
+
+    /// <summary>The sender calls it back while it's in transit: the stock returns to the source.</summary>
+    public async Task<StockTransferDto> CancelTransferAsync(Guid id, CancellationToken ct)
+    {
+        var branchId = tenant.RequireBranchId();
+        var transfer = await LoadTransferAsync(id, ct);
+        if (transfer.FromBranchId != branchId) throw new ConflictException("Only the branch that sent it can cancel it.");
+        if (transfer.Status != StockTransferStatus.InTransit) throw new ConflictException("This transfer has already been received or cancelled.");
+
+        foreach (var line in transfer.Lines)
+        {
+            db.StockMovements.Add(Movement(transfer.TenantId, branchId, line.InventoryItemId, StockMovementType.TransferIn, line.Quantity, line.UnitCost,
+                nameof(StockTransfer), transfer.Id, $"xfer-back:{transfer.Id}:{line.InventoryItemId}", $"{transfer.Number} cancelled"));
+        }
+        transfer.Status = StockTransferStatus.Cancelled;
+
+        audit.Record(AuditActions.StockTransferCancelled, nameof(StockTransfer), transfer.Id, after: new { transfer.Number }, branchId: branchId);
+        await SaveTransferAsync(ct);
+        return (await TransferDtosAsync([transfer], ct))[0];
+    }
+
+    private async Task<StockTransfer> LoadTransferAsync(Guid id, CancellationToken ct)
+    {
+        var branchId = tenant.RequireBranchId();
+        return await db.StockTransfers.Include(t => t.Lines).FirstOrDefaultAsync(t => t.Id == id && (t.FromBranchId == branchId || t.ToBranchId == branchId), ct)
+            ?? throw new NotFoundException("Transfer");
+    }
+
+    private async Task SaveTransferAsync(CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is DbUpdateConcurrencyException || (ex is DbUpdateException update && db.IsUniqueViolation(update)))
+        {
+            // Two people received, cancelled or sent at the same moment: the ledger keys and the row version let one through.
+            throw new ConflictException("This transfer was changed at the same moment. Reload and try again.");
+        }
+    }
+
+    private async Task<List<StockTransferDto>> TransferDtosAsync(List<StockTransfer> transfers, CancellationToken ct)
+    {
+        // Names from the whole restaurant: the other branch may be one the caller can't open.
+        var branchIds = transfers.SelectMany(t => new[] { t.FromBranchId, t.ToBranchId }).Distinct().ToList();
+        var branches = await db.Branches.Where(b => branchIds.Contains(b.Id)).ToDictionaryAsync(b => b.Id, b => b.Name, ct);
+        var itemIds = transfers.SelectMany(t => t.Lines).Select(l => l.InventoryItemId).Distinct().ToList();
+        var items = await db.InventoryItems.Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => (i.Name, i.BaseUnit), ct);
+        var userIds = transfers.Select(t => t.CreatedBy).Concat(transfers.Select(t => t.ReceivedByUserId)).Where(u => u is not null).Distinct().ToList();
+        var names = await db.Memberships.Where(m => userIds.Contains(m.UserId)).ToDictionaryAsync(m => m.UserId, m => m.DisplayName, ct);
+        string? NameOf(Guid? id) => id is { } u ? names.GetValueOrDefault(u) : null;
+
+        return transfers.Select(t => new StockTransferDto(t.Id, t.Number, t.FromBranchId, branches.GetValueOrDefault(t.FromBranchId, "—"), t.ToBranchId,
+            branches.GetValueOrDefault(t.ToBranchId, "—"), t.Status, t.Notes, t.TotalCost, t.CreatedAt, NameOf(t.CreatedBy), t.ReceivedAt, NameOf(t.ReceivedByUserId),
+            t.Lines.Select(l =>
+            {
+                var (name, baseUnit) = items.GetValueOrDefault(l.InventoryItemId, ("—", "pc"));
+                return new StockTransferLineDto(l.InventoryItemId, name, baseUnit, l.Quantity, l.UnitCost);
+            }).OrderBy(l => l.ItemName).ToList())).ToList();
     }
 
     public async Task<IReadOnlyList<StockReceiptDto>> ReceiptsAsync(CancellationToken ct)
@@ -501,7 +687,7 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
         return balance;
     }
 
-    private async Task<Dictionary<Guid, InventoryItem>> LoadItemsAsync(IEnumerable<Guid> ids, CancellationToken ct)
+    internal async Task<Dictionary<Guid, InventoryItem>> LoadItemsAsync(IEnumerable<Guid> ids, CancellationToken ct)
     {
         var wanted = ids.Distinct().ToList();
         var items = await db.InventoryItems.Include(i => i.Units).Where(i => wanted.Contains(i.Id)).ToDictionaryAsync(i => i.Id, ct);
@@ -509,7 +695,7 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
         return items;
     }
 
-    private static decimal ToBase(InventoryItem item, decimal quantity, string unit) =>
+    internal static decimal ToBase(InventoryItem item, decimal quantity, string unit) =>
         UnitCatalog.ToBase(item.BaseUnit, item.Units.Select(u => new InventoryItemUnitDto(u.Name, u.FactorToBase)), unit?.Trim() ?? "", quantity)
         ?? throw new ValidationAppException("Unit", $"{unit} can't be used for {item.Name} (it is kept in {item.BaseUnit}).");
 
@@ -545,7 +731,8 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
     private static InventoryItemDto ToDto(InventoryItem i) => new(i.Id, i.Name, i.NameUr, i.BaseUnit, i.Category, i.ReorderLevel, i.IsActive,
         i.Units.OrderBy(u => u.FactorToBase).Select(u => new InventoryItemUnitDto(u.Name, u.FactorToBase)).ToList());
 
-    private static StockReceiptDto ToDto(StockReceipt r, string? byName) => new(r.Id, r.Supplier, r.InvoiceNumber, r.TotalCost, r.LineCount, r.CreatedAt, byName);
+    private static StockReceiptDto ToDto(StockReceipt r, string? byName) => new(r.Id, r.Supplier, r.InvoiceNumber, r.TotalCost, r.LineCount, r.CreatedAt, byName,
+        r.PurchaseOrderId);
 
     private static StockCountDto ToDto(StockCount c, string? byName) => new(c.Id, c.CreatedAt, byName, c.Notes, c.VarianceValue,
         JsonSerializer.Deserialize<List<StockCountLineDto>>(c.LinesJson, OrderPricing.Json) ?? []);

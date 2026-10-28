@@ -211,7 +211,8 @@ public class ReportService(IApplicationDbContext db, ITenantContext tenant, Stoc
                 -Qty(StockMovementType.SaleConsumption, StockMovementType.SaleReversal), -Value(StockMovementType.SaleConsumption, StockMovementType.SaleReversal),
                 -Qty(StockMovementType.Wastage), -Value(StockMovementType.Wastage),
                 Qty(StockMovementType.Adjustment), Qty(StockMovementType.CountVariance),
-                Value(StockMovementType.Adjustment, StockMovementType.CountVariance));
+                Value(StockMovementType.Adjustment, StockMovementType.CountVariance),
+                Qty(StockMovementType.TransferIn, StockMovementType.TransferOut));
         }).OrderBy(a => a.Name).ToList();
 
         return new InventoryReportDto(scope.Dto, levels.Sum(l => l.Value), levels.Count(l => l.IsLow), levels, activity,

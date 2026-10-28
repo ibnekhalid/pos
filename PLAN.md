@@ -889,8 +889,23 @@ Phase 5 notes:
 - [x] Urdu on thermal printers (raster lines, see section 10). It hasn't been tried on a real printer yet.
 - Found and fixed on the way: opening a second register in a business day that had already started
   always failed with a 500, because the new drawer was saved as an UPDATE.
-- Still deferred: purchase orders and suppliers as records, stock transfers between branches, table
-  reservations and cleaning states.
+
+### Deferred items, batch 2
+- [x] Suppliers (whole restaurant) and purchase orders (per branch): Draft → Ordered → Partly received →
+  Received, or Cancelled. A purchase order never moves stock itself. Stock receipts taken against it fill
+  in each line's received quantity, in base units, and close it once every line is in. The Receive tab can
+  pick an order and fills in what is still to come, and Purchasing can start an order from the low-stock
+  list. Purchase orders print on A4.
+- [x] Stock transfers between branches: sending books `TransferOut` at the source's average cost at once.
+  The destination receives it (`TransferIn` at that cost, which updates its weighted average), or the
+  sender calls it back while it's in transit. Ledger keys are `xfer-out`, `xfer-in` and `xfer-back`, and
+  the source's stock policy applies. The stock report shows the net transferred.
+- [x] Table bookings: a booking holds a table for its duration and can't overlap another on that table. It
+  is seated, cancelled or marked as a no-show. The table map shows a booking from two hours before it
+  starts. Bookings have their own page with the floor plan.
+- [x] Cleaning: a table needs cleaning once a completed or voided order on it closes, until someone marks
+  it clean (`CleanedAt`). It is derived, like occupied, so nothing has to be reset.
+- Not built: deposits for bookings, and SMS/WhatsApp reminders (needs the Phase 6 messaging).
 
 ### Phase 6 — Optional, after release
 - [ ] Offline order capture on the desktop (local SQLite outbox, offline order-number range per register, conflict rules)

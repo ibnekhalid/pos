@@ -59,7 +59,10 @@ public class StockMovement : BranchEntity
 
 public class StockReceipt : BranchEntity
 {
+    /// <summary>The supplier's name as it was (also for receipts without a supplier record).</summary>
     public string? Supplier { get; set; }
+    public Guid? SupplierId { get; set; }
+    public Guid? PurchaseOrderId { get; set; }
     public string? InvoiceNumber { get; set; }
     public string? Notes { get; set; }
     public decimal TotalCost { get; set; }

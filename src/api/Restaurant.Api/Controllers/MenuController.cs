@@ -95,4 +95,9 @@ public class MenuController(MenuService menu, TableService tables) : ControllerB
     [HttpPut("tables/{id:guid}")]
     [RequirePermission(Permissions.Tenant.ManageSettings)]
     public Task<TableDto> UpdateTable(Guid id, SaveTableRequest request, CancellationToken ct) => tables.SaveTableAsync(id, request, ct);
+
+    /// <summary>The table has been cleared and reset after the last guests.</summary>
+    [HttpPost("tables/{id:guid}/clean")]
+    [RequirePermission(Permissions.Orders.Create)]
+    public Task<TableDto> MarkClean(Guid id, CancellationToken ct) => tables.MarkCleanAsync(id, ct);
 }

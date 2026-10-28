@@ -61,6 +61,8 @@ internal class StockReceiptConfiguration : IEntityTypeConfiguration<StockReceipt
     {
         b.Property(x => x.Supplier).HasMaxLength(100);
         b.Property(x => x.InvoiceNumber).HasMaxLength(50);
+        b.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<PurchaseOrder>().WithMany().HasForeignKey(x => x.PurchaseOrderId).OnDelete(DeleteBehavior.Restrict);
         b.Property(x => x.Notes).HasMaxLength(300);
         b.HasIndex(x => new { x.TenantId, x.ClientRequestId }).IsUnique();
         b.HasIndex(x => x.BranchId);
@@ -143,5 +145,75 @@ internal class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         b.Property(x => x.Address).HasMaxLength(300);
         b.Property(x => x.Notes).HasMaxLength(300);
         b.HasIndex(x => new { x.TenantId, x.Phone }).IsUnique().HasFilter("\"Phone\" IS NOT NULL");
+    }
+}
+
+internal class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
+{
+    public void Configure(EntityTypeBuilder<Supplier> b)
+    {
+        b.Property(x => x.Name).HasMaxLength(100).IsRequired();
+        b.Property(x => x.ContactName).HasMaxLength(100);
+        b.Property(x => x.Phone).HasMaxLength(30);
+        b.Property(x => x.Address).HasMaxLength(300);
+        b.Property(x => x.Notes).HasMaxLength(500);
+        b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+    }
+}
+
+internal class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder>
+{
+    public void Configure(EntityTypeBuilder<PurchaseOrder> b)
+    {
+        b.Property(x => x.Number).HasMaxLength(20).IsRequired();
+        b.Property(x => x.Notes).HasMaxLength(500);
+        b.Property(x => x.Total).HasPrecision(18, 2);
+        b.Property(x => x.Version).IsRowVersion();
+        b.HasIndex(x => new { x.BranchId, x.Sequence }).IsUnique();
+        b.HasIndex(x => new { x.BranchId, x.Status });
+        b.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Branch>().WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseOrderLine>
+{
+    public void Configure(EntityTypeBuilder<PurchaseOrderLine> b)
+    {
+        b.Property(x => x.Quantity).HasPrecision(18, 3);
+        b.Property(x => x.Unit).HasMaxLength(30).IsRequired();
+        b.Property(x => x.UnitCost).HasPrecision(18, 4);
+        b.Property(x => x.QuantityBase).HasPrecision(18, 3);
+        b.Property(x => x.ReceivedBase).HasPrecision(18, 3);
+        b.HasOne<InventoryItem>().WithMany().HasForeignKey(x => x.InventoryItemId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer>
+{
+    public void Configure(EntityTypeBuilder<StockTransfer> b)
+    {
+        b.Property(x => x.Number).HasMaxLength(20).IsRequired();
+        b.Property(x => x.Notes).HasMaxLength(300);
+        b.Property(x => x.TotalCost).HasPrecision(18, 2);
+        b.Property(x => x.Version).IsRowVersion();
+        b.HasIndex(x => new { x.TenantId, x.Sequence }).IsUnique();
+        b.HasIndex(x => new { x.TenantId, x.ClientRequestId }).IsUnique();
+        b.HasIndex(x => x.FromBranchId);
+        b.HasIndex(x => x.ToBranchId);
+        b.HasOne<Branch>().WithMany().HasForeignKey(x => x.FromBranchId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Branch>().WithMany().HasForeignKey(x => x.ToBranchId).OnDelete(DeleteBehavior.Restrict);
+        b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.StockTransferId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTransferLine>
+{
+    public void Configure(EntityTypeBuilder<StockTransferLine> b)
+    {
+        b.Property(x => x.Quantity).HasPrecision(18, 3);
+        b.Property(x => x.UnitCost).HasPrecision(18, 4);
+        b.HasOne<InventoryItem>().WithMany().HasForeignKey(x => x.InventoryItemId).OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -344,7 +344,7 @@ else
                         else
                         {
                             <table class="rp-table">
-                                <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("movementType.Receipt")</th><th class="rp-right">@T("movementType.SaleConsumption")</th><th class="rp-right">@T("movementType.Wastage")</th><th class="rp-right">@T("movementType.Adjustment")</th><th class="rp-right">@T("movementType.CountVariance")</th></tr></thead>
+                                <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("movementType.Receipt")</th><th class="rp-right">@T("movementType.SaleConsumption")</th><th class="rp-right">@T("movementType.Wastage")</th><th class="rp-right">@T("movementType.Adjustment")</th><th class="rp-right">@T("movementType.CountVariance")</th><th class="rp-right">@T("reports.transferred")</th></tr></thead>
                                 <tbody>
                                     @foreach (var a in _inventory.Activity)
                                     {
@@ -355,6 +355,7 @@ else
                                             <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Wasted, a.BaseUnit)<span class="rp-hint">@Money(a.WastedValue)</span></td>
                                             <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Adjusted, a.BaseUnit)</td>
                                             <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.CountVariance, a.BaseUnit)</td>
+                                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Transferred, a.BaseUnit)</td>
                                         </tr>
                                     }
                                 </tbody>

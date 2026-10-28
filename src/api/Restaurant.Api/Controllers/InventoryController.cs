@@ -11,8 +11,10 @@ namespace Restaurant.Api.Controllers;
 [ApiController]
 [Route("api/inventory")]
 [Authorize]
-public class InventoryController(StockService stock) : ControllerBase
+public class InventoryController(StockService stock, PurchasingService purchasing) : ControllerBase
 {
+    private const string See = Permissions.Reports.Inventory;
+
     [HttpGet("units")]
     public IReadOnlyList<UnitDto> Units() => UnitCatalog.All;
 
@@ -68,4 +70,64 @@ public class InventoryController(StockService stock) : ControllerBase
     [HttpPut("recipes")]
     [RequirePermission(Permissions.Menu.Manage)]
     public Task<RecipeDto> SaveRecipe(RecipeDto request, CancellationToken ct) => stock.SaveRecipeAsync(request, ct);
+
+    // ---------------------------------------------------------------- suppliers and purchase orders
+
+    [HttpGet("suppliers")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust, See)]
+    public Task<IReadOnlyList<SupplierDto>> Suppliers(CancellationToken ct) => purchasing.SuppliersAsync(ct);
+
+    [HttpPost("suppliers")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<SupplierDto> CreateSupplier(SaveSupplierRequest request, CancellationToken ct) => purchasing.SaveSupplierAsync(null, request, ct);
+
+    [HttpPut("suppliers/{id:guid}")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<SupplierDto> UpdateSupplier(Guid id, SaveSupplierRequest request, CancellationToken ct) => purchasing.SaveSupplierAsync(id, request, ct);
+
+    [HttpGet("purchase-orders")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust, See)]
+    public Task<IReadOnlyList<PurchaseOrderDto>> PurchaseOrders(CancellationToken ct) => purchasing.PurchaseOrdersAsync(ct);
+
+    [HttpGet("purchase-orders/{id:guid}")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust, See)]
+    public Task<PurchaseOrderDto> PurchaseOrder(Guid id, CancellationToken ct) => purchasing.GetAsync(id, ct);
+
+    [HttpPost("purchase-orders")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<PurchaseOrderDto> CreatePurchaseOrder(SavePurchaseOrderRequest request, CancellationToken ct) => purchasing.SaveAsync(null, request, ct);
+
+    [HttpPut("purchase-orders/{id:guid}")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<PurchaseOrderDto> UpdatePurchaseOrder(Guid id, SavePurchaseOrderRequest request, CancellationToken ct) => purchasing.SaveAsync(id, request, ct);
+
+    /// <summary>Draft → Ordered (sent to the supplier). Goods are then received with POST receipts and its id.</summary>
+    [HttpPost("purchase-orders/{id:guid}/place")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<PurchaseOrderDto> PlacePurchaseOrder(Guid id, CancellationToken ct) => purchasing.PlaceAsync(id, ct);
+
+    [HttpPost("purchase-orders/{id:guid}/cancel")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<PurchaseOrderDto> CancelPurchaseOrder(Guid id, CancellationToken ct) => purchasing.CancelAsync(id, ct);
+
+    // ---------------------------------------------------------------- transfers between branches
+
+    [HttpGet("transfers")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust, See)]
+    public Task<IReadOnlyList<StockTransferDto>> Transfers(CancellationToken ct) => stock.TransfersAsync(ct);
+
+    /// <summary>Sends stock from the selected branch to another one.</summary>
+    [HttpPost("transfers")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<StockTransferDto> SendTransfer(CreateStockTransferRequest request, CancellationToken ct) => stock.SendTransferAsync(request, ct);
+
+    /// <summary>The selected branch (the destination) books it in.</summary>
+    [HttpPost("transfers/{id:guid}/receive")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<StockTransferDto> ReceiveTransfer(Guid id, CancellationToken ct) => stock.ReceiveTransferAsync(id, ct);
+
+    /// <summary>The selected branch (the sender) takes it back while it's in transit.</summary>
+    [HttpPost("transfers/{id:guid}/cancel")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Adjust)]
+    public Task<StockTransferDto> CancelTransfer(Guid id, CancellationToken ct) => stock.CancelTransferAsync(id, ct);
 }

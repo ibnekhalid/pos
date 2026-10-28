@@ -107,8 +107,8 @@ else if (_menu is not null)
                     <div class="rp-table-picker">
                         @foreach (var table in _tables.Where(t => t.IsActive))
                         {
-                            <button class="@(_tableId == table.Id ? "active" : "") @(table.OpenOrderId is null ? "" : "busy")" @onclick="() => PickTable(table)"
-                                    title="@(table.OpenOrderNumber is null ? T("pos.tableFree") : T("pos.tableBusy", ("number", table.OpenOrderNumber)))">@table.Number</button>
+                            <button class="@(_tableId == table.Id ? "active" : "") @TableClass(table)" @onclick="() => PickTable(table)"
+                                    title="@TableTitle(table)">@table.Number</button>
                         }
                     </div>
                 }
@@ -227,6 +227,15 @@ else if (_menu is not null)
     private PosMenuDto? _menu;
     private BusinessSessionDto? _session;
     private IReadOnlyList<TableDto> _tables = [];
+
+    private static string TableClass(TableDto t) =>
+        t.OpenOrderId is not null ? "busy" : t.NeedsCleaning ? "dirty" : t.ReservedAt is not null ? "reserved" : "";
+
+    private string TableTitle(TableDto t) =>
+        t.OpenOrderNumber is not null ? T("pos.tableBusy", ("number", t.OpenOrderNumber))
+        : t.NeedsCleaning ? T("tables.needsCleaning")
+        : t.ReservedAt is { } at ? T("tables.reservedFor", ("name", t.ReservedFor ?? ""), ("time", at.ToLocalTime().ToString("h:mm tt")))
+        : T("pos.tableFree");
     private Guid? _category;
     private string? _search;
     private readonly List<CartLine> _cart = [];

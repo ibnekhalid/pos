@@ -111,6 +111,19 @@ internal class RestaurantTableConfiguration : IEntityTypeConfiguration<Restauran
     }
 }
 
+internal class ReservationConfiguration : IEntityTypeConfiguration<Reservation>
+{
+    public void Configure(EntityTypeBuilder<Reservation> b)
+    {
+        b.Property(x => x.CustomerName).HasMaxLength(100).IsRequired();
+        b.Property(x => x.Phone).HasMaxLength(30);
+        b.Property(x => x.Notes).HasMaxLength(300);
+        b.HasIndex(x => new { x.BranchId, x.At });
+        b.HasOne<Branch>().WithMany().HasForeignKey(x => x.BranchId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<RestaurantTable>().WithMany().HasForeignKey(x => x.TableId).OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
 internal class BusinessSessionConfiguration : IEntityTypeConfiguration<BusinessSession>
 {
     public void Configure(EntityTypeBuilder<BusinessSession> b)

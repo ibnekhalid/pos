@@ -133,7 +133,9 @@
       "branch": "Branch",
       "fullScreen": "Full screen",
       "switchRestaurant": "Switch restaurant",
-      "signOut": "Sign out"
+      "signOut": "Sign out",
+      "reservations": "Bookings",
+      "reservationsSummary": "Table bookings, seating, and tables waiting to be cleaned."
     },
     "home": {
       "greeting": "Salaam, {name}",
@@ -545,7 +547,15 @@
       "deal_saved": "Deal saved",
       "customer_saved": "Customer saved",
       "customer_anonymized": "Customer data removed",
-      "ownership_transferred": "Ownership handed over"
+      "ownership_transferred": "Ownership handed over",
+      "supplier_saved": "Supplier saved",
+      "purchase_order_saved": "Purchase order saved",
+      "purchase_order_ordered": "Purchase order placed",
+      "purchase_order_cancelled": "Purchase order cancelled",
+      "stock_transfer_sent": "Stock sent to a branch",
+      "stock_transfer_received": "Stock received from a branch",
+      "stock_transfer_cancelled": "Stock transfer called back",
+      "device_updated": "Counter device changed"
     },
     "approval": {
       "needed": "A manager's approval is needed",
@@ -817,7 +827,9 @@
       "area": "Area",
       "areas": "Dining areas",
       "areaPlaceholder": "Family hall, Rooftop…",
-      "addArea": "Add area"
+      "addArea": "Add area",
+      "needsCleaning": "Needs cleaning",
+      "reservedFor": "Booked: {name} at {time}"
     },
     "deals": {
       "subtitle": "Combos, buy-one-get-one, happy hours and coupons.",
@@ -916,7 +928,9 @@
         "count": "Count",
         "history": "History",
         "items": "Stock items",
-        "recipes": "Recipes"
+        "recipes": "Recipes",
+        "purchasing": "Purchasing",
+        "transfers": "Transfers"
       },
       "emptyTitle": "No stock items yet",
       "emptyText": "Add the ingredients you buy under Stock items, then receive your first delivery.",
@@ -986,7 +1000,9 @@
       "SaleReversal": "Void returned",
       "Wastage": "Wastage",
       "Adjustment": "Adjustment",
-      "CountVariance": "Count difference"
+      "CountVariance": "Count difference",
+      "TransferOut": "Sent to branch",
+      "TransferIn": "From branch"
     },
     "unit": {
       "g": "Grams (g)",
@@ -1079,7 +1095,8 @@
       "currentStock": "Current stock",
       "reorderAt": "Reorder at",
       "inventoryValueHint": "Values are estimated at the weighted-average purchase cost. Stock on hand and its value are as of now, not the end of the period. These are costs, not profit.",
-      "noDays": "No business days yet."
+      "noDays": "No business days yet.",
+      "transferred": "Transferred"
     },
     "update": {
       "available": "Version {version} of Restaurant POS is available.",
@@ -1096,6 +1113,116 @@
       "stepDownHint": "You stop being an owner and keep working as a Manager.",
       "password": "Your password",
       "done": "{name} is now an owner."
+    },
+    "purchasing": {
+      "title": "Purchasing",
+      "orders": "Purchase orders",
+      "suppliers": "Suppliers",
+      "order": "Purchase order",
+      "newOrder": "New purchase order",
+      "editOrder": "Edit purchase order",
+      "addSupplier": "Add supplier",
+      "editSupplier": "Edit supplier",
+      "noSuppliersTitle": "No suppliers yet",
+      "noSuppliersText": "Add the people you buy stock from, then order from them here.",
+      "noOrdersTitle": "No purchase orders yet",
+      "noOrdersText": "Make one, place it with the supplier, and receive the goods against it.",
+      "expected": "expected {date}",
+      "expectedDate": "Expected on",
+      "receivedShare": "{pct}% received",
+      "view": "View",
+      "place": "Place order",
+      "receive": "Receive",
+      "received": "Received",
+      "supplier": "Supplier",
+      "contact": "Contact person",
+      "phone": "Phone",
+      "address": "Address",
+      "addLowStock": "Add low-stock items ({n})",
+      "saveDraft": "Save draft",
+      "placed": "{number} is placed. Receive the goods against it when they arrive.",
+      "cancelTitle": "Cancel this purchase order?",
+      "cancelText": "{number} will be closed. Anything already received stays in stock.",
+      "cancelOrder": "Cancel order",
+      "againstOrder": "Purchase order",
+      "againstOrderHint": "Pick the order these goods are for: its items still to come are filled in below.",
+      "noOrder": "None (not against an order)",
+      "noSupplierRecord": "Not in the list",
+      "otherSupplier": "Supplier name",
+      "items": "Items to order"
+    },
+    "poStatus": {
+      "Draft": "Draft",
+      "Ordered": "Ordered",
+      "PartiallyReceived": "Partly received",
+      "Received": "Received",
+      "Cancelled": "Cancelled"
+    },
+    "transfers": {
+      "title": "Transfers between branches",
+      "send": "Send stock",
+      "toBranch": "To branch",
+      "noneTitle": "No transfers yet",
+      "noneText": "Send stock to another branch here. It leaves this branch at once and arrives when that branch receives it.",
+      "from": "from {branch}",
+      "to": "to {branch}",
+      "receivedAt": "received {time} by {name}",
+      "receive": "Receive",
+      "callBack": "Call back",
+      "onHand": "{qty} here",
+      "hint": "The stock leaves this branch now, at its average cost here. The other branch receives it when it arrives.",
+      "callBackTitle": "Call this transfer back?",
+      "callBackText": "{number} hasn't arrived yet. The stock comes back to this branch.",
+      "sent": "{number} is on its way to {branch}.",
+      "received": "{number} is in stock here.",
+      "calledBack": "The stock is back in this branch.",
+      "items": "Items to send"
+    },
+    "transferStatus": {
+      "InTransit": "On the way",
+      "Received": "Received",
+      "Cancelled": "Called back"
+    },
+    "bookings": {
+      "new": "New booking",
+      "edit": "Edit booking",
+      "previousDay": "Previous day",
+      "nextDay": "Next day",
+      "count": "{n} bookings · {guests} guests",
+      "noneTitle": "No bookings on this day",
+      "noneText": "Add one with New booking.",
+      "party": "{n} guests",
+      "table": "table {number}",
+      "seat": "Seat",
+      "noShow": "No-show",
+      "floor": "Tables now",
+      "free": "Free",
+      "occupied": "Occupied",
+      "reserved": "Booked soon",
+      "floorHint": "Tap a table waiting to be cleaned once it's ready; tap an occupied one to open its order.",
+      "name": "Guest's name",
+      "partySize": "Guests",
+      "time": "Time",
+      "duration": "Hold the table for",
+      "tableLabel": "Table",
+      "minutes": "{n} minutes",
+      "anyTable": "Choose when they arrive",
+      "tableSeats": "Table {number} ({seats} seats)",
+      "noShowTitle": "Mark as a no-show?",
+      "cancelTitle": "Cancel this booking?",
+      "closeText": "{name}'s table is freed.",
+      "cancelBooking": "Cancel booking",
+      "tapToClean": "Tap when clean",
+      "seats": "{n} seats",
+      "cleaned": "Table {number} is ready.",
+      "pickTime": "Pick a date and time.",
+      "seated": "{name} is seated."
+    },
+    "bookingStatus": {
+      "Booked": "Booked",
+      "Seated": "Seated",
+      "Cancelled": "Cancelled",
+      "NoShow": "No-show"
     }
   },
   "ur": {
@@ -1232,7 +1359,9 @@
       "branch": "برانچ",
       "fullScreen": "فل اسکرین",
       "switchRestaurant": "ریسٹورنٹ تبدیل کریں",
-      "signOut": "سائن آؤٹ"
+      "signOut": "سائن آؤٹ",
+      "reservations": "بکنگ",
+      "reservationsSummary": "ٹیبل بکنگ، بٹھانا، اور صفائی کے منتظر ٹیبل۔"
     },
     "home": {
       "greeting": "السلام علیکم، {name}",
@@ -1644,7 +1773,15 @@
       "deal_saved": "ڈیل محفوظ",
       "customer_saved": "گاہک محفوظ",
       "customer_anonymized": "گاہک کی معلومات ہٹائی گئیں",
-      "ownership_transferred": "ملکیت منتقل کی گئی"
+      "ownership_transferred": "ملکیت منتقل کی گئی",
+      "supplier_saved": "سپلائر محفوظ",
+      "purchase_order_saved": "خریداری آرڈر محفوظ",
+      "purchase_order_ordered": "خریداری آرڈر دیا گیا",
+      "purchase_order_cancelled": "خریداری آرڈر منسوخ",
+      "stock_transfer_sent": "اسٹاک برانچ کو بھیجا",
+      "stock_transfer_received": "برانچ سے اسٹاک وصول",
+      "stock_transfer_cancelled": "اسٹاک منتقلی واپس",
+      "device_updated": "کاؤنٹر ڈیوائس تبدیل"
     },
     "approval": {
       "needed": "مینیجر کی منظوری درکار ہے",
@@ -1916,7 +2053,9 @@
       "area": "ایریا",
       "areas": "ڈائننگ ایریاز",
       "areaPlaceholder": "فیملی ہال، چھت…",
-      "addArea": "ایریا شامل کریں"
+      "addArea": "ایریا شامل کریں",
+      "needsCleaning": "صفائی درکار",
+      "reservedFor": "بکنگ: {name}، {time}"
     },
     "deals": {
       "subtitle": "کومبو، ایک خریدیں ایک مفت، ہیپی آور اور کوپن۔",
@@ -2015,7 +2154,9 @@
         "count": "گنتی",
         "history": "تاریخ",
         "items": "اسٹاک آئٹمز",
-        "recipes": "ترکیبیں"
+        "recipes": "ترکیبیں",
+        "purchasing": "خریداری",
+        "transfers": "منتقلی"
       },
       "emptyTitle": "ابھی کوئی اسٹاک آئٹم نہیں",
       "emptyText": "اسٹاک آئٹمز میں خریدے جانے والے اجزاء شامل کریں، پھر پہلی ڈیلیوری وصول کریں۔",
@@ -2085,7 +2226,9 @@
       "SaleReversal": "منسوخی واپسی",
       "Wastage": "ضیاع",
       "Adjustment": "درستگی",
-      "CountVariance": "گنتی کا فرق"
+      "CountVariance": "گنتی کا فرق",
+      "TransferOut": "برانچ کو بھیجا",
+      "TransferIn": "برانچ سے آیا"
     },
     "unit": {
       "g": "گرام (g)",
@@ -2178,7 +2321,8 @@
       "currentStock": "موجودہ اسٹاک",
       "reorderAt": "دوبارہ آرڈر کی حد",
       "inventoryValueHint": "مالیت اوسط خرید قیمت پر اندازاً ہے۔ موجودہ اسٹاک اور اس کی مالیت ابھی کی ہے، مدت کے آخر کی نہیں۔ یہ لاگت ہے، منافع نہیں۔",
-      "noDays": "ابھی کوئی کاروباری دن نہیں۔"
+      "noDays": "ابھی کوئی کاروباری دن نہیں۔",
+      "transferred": "منتقل شدہ"
     },
     "update": {
       "available": "ریسٹورنٹ POS کا ورژن {version} دستیاب ہے۔",
@@ -2195,6 +2339,116 @@
       "stepDownHint": "آپ مالک نہیں رہیں گے اور مینیجر کے طور پر کام جاری رکھیں گے۔",
       "password": "آپ کا پاس ورڈ",
       "done": "{name} اب مالک ہیں۔"
+    },
+    "purchasing": {
+      "title": "خریداری",
+      "orders": "خریداری آرڈرز",
+      "suppliers": "سپلائرز",
+      "order": "خریداری آرڈر",
+      "newOrder": "نیا خریداری آرڈر",
+      "editOrder": "خریداری آرڈر میں ترمیم",
+      "addSupplier": "سپلائر شامل کریں",
+      "editSupplier": "سپلائر میں ترمیم",
+      "noSuppliersTitle": "ابھی کوئی سپلائر نہیں",
+      "noSuppliersText": "جن سے آپ اسٹاک خریدتے ہیں انہیں شامل کریں، پھر یہاں ان سے آرڈر کریں۔",
+      "noOrdersTitle": "ابھی کوئی خریداری آرڈر نہیں",
+      "noOrdersText": "آرڈر بنائیں، سپلائر کو دیں، اور سامان اسی کے تحت وصول کریں۔",
+      "expected": "متوقع {date}",
+      "expectedDate": "متوقع تاریخ",
+      "receivedShare": "{pct}% وصول",
+      "view": "دیکھیں",
+      "place": "آرڈر دیں",
+      "receive": "وصول کریں",
+      "received": "وصول شدہ",
+      "supplier": "سپلائر",
+      "contact": "رابطہ شخص",
+      "phone": "فون",
+      "address": "پتہ",
+      "addLowStock": "کم اسٹاک آئٹمز شامل کریں ({n})",
+      "saveDraft": "ڈرافٹ محفوظ کریں",
+      "placed": "{number} دے دیا گیا۔ سامان آنے پر اسی کے تحت وصول کریں۔",
+      "cancelTitle": "یہ خریداری آرڈر منسوخ کریں؟",
+      "cancelText": "{number} بند ہو جائے گا۔ جو وصول ہو چکا وہ اسٹاک میں رہے گا۔",
+      "cancelOrder": "آرڈر منسوخ کریں",
+      "againstOrder": "خریداری آرڈر",
+      "againstOrderHint": "وہ آرڈر چنیں جس کا یہ سامان ہے: باقی آئٹمز نیچے بھر دیے جائیں گے۔",
+      "noOrder": "کوئی نہیں (آرڈر کے بغیر)",
+      "noSupplierRecord": "فہرست میں نہیں",
+      "otherSupplier": "سپلائر کا نام",
+      "items": "آرڈر کے آئٹمز"
+    },
+    "poStatus": {
+      "Draft": "ڈرافٹ",
+      "Ordered": "آرڈر دیا گیا",
+      "PartiallyReceived": "جزوی وصول",
+      "Received": "وصول",
+      "Cancelled": "منسوخ"
+    },
+    "transfers": {
+      "title": "برانچوں کے درمیان منتقلی",
+      "send": "اسٹاک بھیجیں",
+      "toBranch": "کس برانچ کو",
+      "noneTitle": "ابھی کوئی منتقلی نہیں",
+      "noneText": "یہاں سے دوسری برانچ کو اسٹاک بھیجیں۔ یہ فوراً اس برانچ سے نکلتا ہے اور وصول ہونے پر وہاں آتا ہے۔",
+      "from": "{branch} سے",
+      "to": "{branch} کو",
+      "receivedAt": "{time} کو {name} نے وصول کیا",
+      "receive": "وصول کریں",
+      "callBack": "واپس منگوائیں",
+      "onHand": "یہاں {qty}",
+      "hint": "اسٹاک ابھی اس برانچ سے نکل جائے گا، یہاں کی اوسط قیمت پر۔ پہنچنے پر دوسری برانچ اسے وصول کرے گی۔",
+      "callBackTitle": "یہ منتقلی واپس منگوائیں؟",
+      "callBackText": "{number} ابھی نہیں پہنچا۔ اسٹاک اس برانچ میں واپس آ جائے گا۔",
+      "sent": "{number} {branch} کی طرف روانہ ہے۔",
+      "received": "{number} یہاں اسٹاک میں آ گیا۔",
+      "calledBack": "اسٹاک اس برانچ میں واپس آ گیا۔",
+      "items": "بھیجنے کے آئٹمز"
+    },
+    "transferStatus": {
+      "InTransit": "راستے میں",
+      "Received": "وصول",
+      "Cancelled": "واپس منگوایا"
+    },
+    "bookings": {
+      "new": "نئی بکنگ",
+      "edit": "بکنگ میں ترمیم",
+      "previousDay": "پچھلا دن",
+      "nextDay": "اگلا دن",
+      "count": "{n} بکنگز · {guests} مہمان",
+      "noneTitle": "اس دن کوئی بکنگ نہیں",
+      "noneText": "نئی بکنگ سے شامل کریں۔",
+      "party": "{n} مہمان",
+      "table": "ٹیبل {number}",
+      "seat": "بٹھائیں",
+      "noShow": "نہیں آئے",
+      "floor": "ٹیبل ابھی",
+      "free": "خالی",
+      "occupied": "مصروف",
+      "reserved": "جلد بکنگ",
+      "floorHint": "صفائی کا منتظر ٹیبل تیار ہونے پر دبائیں؛ مصروف ٹیبل دبا کر اس کا آرڈر کھولیں۔",
+      "name": "مہمان کا نام",
+      "partySize": "مہمان",
+      "time": "وقت",
+      "duration": "ٹیبل کب تک رکھیں",
+      "tableLabel": "ٹیبل",
+      "minutes": "{n} منٹ",
+      "anyTable": "آنے پر چنیں",
+      "tableSeats": "ٹیبل {number} ({seats} نشستیں)",
+      "noShowTitle": "نہیں آئے لکھ دیں؟",
+      "cancelTitle": "یہ بکنگ منسوخ کریں؟",
+      "closeText": "{name} کا ٹیبل خالی ہو جائے گا۔",
+      "cancelBooking": "بکنگ منسوخ کریں",
+      "tapToClean": "صاف ہونے پر دبائیں",
+      "seats": "{n} نشستیں",
+      "cleaned": "ٹیبل {number} تیار ہے۔",
+      "pickTime": "تاریخ اور وقت چنیں۔",
+      "seated": "{name} بیٹھ گئے۔"
+    },
+    "bookingStatus": {
+      "Booked": "بک",
+      "Seated": "بیٹھ گئے",
+      "Cancelled": "منسوخ",
+      "NoShow": "نہیں آئے"
     }
   }
 }

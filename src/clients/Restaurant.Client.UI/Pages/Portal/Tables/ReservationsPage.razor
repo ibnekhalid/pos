@@ -1,0 +1,276 @@
+@page "/app/reservations"
+@inherits PageBase
+@inject LiveUpdates Live
+@using System.Globalization
+@using Restaurant.Contracts.Tables
+@* Bookings for a day and the floor right now: which tables are taken, booked or waiting to be cleaned. *@
+
+<PageTitle>@T("nav.reservations")</PageTitle>
+<PageHeader Title="@T("nav.reservations")" Subtitle="@User.CurrentBranch?.Name">
+    <Actions>
+        @if (CanUse) { <RpButton Icon="add" OnClick="() => Edit(null)">@T("bookings.new")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!CanUse)
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && _draft is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+
+    <div class="rp-split">
+        <section>
+            <div class="rp-row rp-mb rp-wrap">
+                <RpButton Small Variant="ghost" Icon="chevron-back" OnClick="() => MoveDayAsync(-1)" Title="@T("bookings.previousDay")" />
+                <TextField Type="date" Value="@Iso(_date)" ValueChanged="SetDateAsync" />
+                <RpButton Small Variant="ghost" Icon="chevron-forward" OnClick="() => MoveDayAsync(1)" Title="@T("bookings.nextDay")" />
+                @if (_date != Today) { <RpButton Small Variant="secondary" OnClick="GoTodayAsync">@T("reports.preset.today")</RpButton> }
+                <span class="rp-grow"></span>
+                <span class="rp-hint">@T("bookings.count", ("n", _bookings.Count(b => b.Status is ReservationStatus.Booked or ReservationStatus.Seated).ToString()), ("guests", _bookings.Where(b => b.Status is ReservationStatus.Booked or ReservationStatus.Seated).Sum(b => b.PartySize).ToString()))</span>
+            </div>
+
+            @if (_bookings.Count == 0)
+            {
+                <EmptyState Icon="calendar-outline" Title="@T("bookings.noneTitle")" Text="@T("bookings.noneText")" />
+            }
+            else
+            {
+                <div class="rp-list">
+                    @foreach (var b in _bookings)
+                    {
+                        <div class="rp-list-item rp-wrap @(b.Status is ReservationStatus.Cancelled or ReservationStatus.NoShow ? "rp-dim" : "")">
+                            <span class="rp-strong rp-nowrap" style="min-width:72px">@b.At.ToLocalTime().ToString("h:mm tt", CultureInfo.InvariantCulture)</span>
+                            <span class="rp-grow">
+                                <span class="rp-strong">@b.CustomerName</span>
+                                <span class="rp-hint">@T("bookings.party", ("n", b.PartySize.ToString()))@(b.TableNumber is null ? "" : " · " + T("bookings.table", ("number", b.TableNumber)))@(b.Phone is null ? "" : $" · {b.Phone}")</span>
+                                @if (b.Notes is not null) { <span class="rp-hint">@b.Notes</span> }
+                            </span>
+                            <Badge Kind="@StatusKind(b.Status)">@T($"bookingStatus.{b.Status}")</Badge>
+                            @if (b.Status == ReservationStatus.Booked)
+                            {
+                                <RpButton Small Loading="Busy" OnClick="() => SeatAsync(b)">@T("bookings.seat")</RpButton>
+                                <RpButton Small Variant="ghost" OnClick="() => Edit(b)">@T("common.edit")</RpButton>
+                                <RpButton Small Variant="ghost" OnClick="() => _closing = (b, ReservationStatus.NoShow)">@T("bookings.noShow")</RpButton>
+                                <RpButton Small Variant="ghost" OnClick="() => _closing = (b, ReservationStatus.Cancelled)">@T("common.cancel")</RpButton>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="rp-panel rp-sticky">
+            <h2>@T("bookings.floor")</h2>
+            <div class="rp-legend rp-mb">
+                <span><i></i>@T("bookings.free")</span><span><i class="busy"></i>@T("bookings.occupied")</span>
+                <span><i class="reserved"></i>@T("bookings.reserved")</span><span><i class="dirty"></i>@T("tables.needsCleaning")</span>
+            </div>
+            <div class="rp-table-picker large">
+                @foreach (var t in _tables.Where(t => t.IsActive))
+                {
+                    <button class="@TableClass(t)" @onclick="() => TableClicked(t)" title="@TableTitle(t)">
+                        <span>@t.Number</span>
+                        <span class="rp-hint">@TableLine(t)</span>
+                    </button>
+                }
+            </div>
+            <p class="rp-hint rp-mt-sm">@T("bookings.floorHint")</p>
+        </section>
+    </div>
+}
+
+<Dialog Open="_draft is not null" OpenChanged="open => { if (!open) _draft = null; }" Title="@(_draft?.Id is null ? T("bookings.new") : T("bookings.edit"))" Busy="Busy">
+    <ChildContent>
+        @if (_draft is not null)
+        {
+            <TextField Label="@T("bookings.name")" @bind-Value="_draft.Name" MaxLength="100" Error="@FieldError("CustomerName")" />
+            <div class="rp-grid-2">
+                <TextField Label="@T("pos.customerPhone")" @bind-Value="_draft.Phone" Type="tel" Dir="ltr" MaxLength="30" />
+                <TextField Label="@T("bookings.partySize")" @bind-Value="_draft.Party" InputMode="numeric" Error="@FieldError("PartySize")" />
+                <TextField Label="@T("day.date")" Type="date" @bind-Value="_draft.Date" />
+                <TextField Label="@T("bookings.time")" Type="time" @bind-Value="_draft.Time" Error="@FieldError("At")" />
+                <SelectField Label="@T("bookings.duration")" @bind-Value="_draft.Duration" Options="DurationOptions" />
+                <SelectField Label="@T("bookings.tableLabel")" @bind-Value="_draft.TableId" Options="TableOptions" />
+            </div>
+            <TextField Label="@T("inventory.notes")" @bind-Value="_draft.Notes" MaxLength="300" />
+            @if (Error is not null) { <Notice Kind="danger">@Error</Notice> }
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _draft = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+<ConfirmDialog Open="_closing is not null" OpenChanged="open => { if (!open) _closing = null; }"
+               Title="@(_closing?.Status == ReservationStatus.NoShow ? T("bookings.noShowTitle") : T("bookings.cancelTitle"))"
+               Message="@T("bookings.closeText", ("name", _closing?.Booking.CustomerName ?? ""))"
+               ConfirmText="@(_closing?.Status == ReservationStatus.NoShow ? T("bookings.noShow") : T("bookings.cancelBooking"))" Destructive OnConfirm="CloseAsync" />
+
+@code {
+    private sealed class Draft
+    {
+        public Guid? Id { get; init; }
+        public string? Name { get; set; }
+        public string? Phone { get; set; }
+        public string? Party { get; set; } = "2";
+        public string? Date { get; set; }
+        public string? Time { get; set; } = "20:00";
+        public string? Duration { get; set; } = "90";
+        public string? TableId { get; set; } = "";
+        public string? Notes { get; set; }
+    }
+
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Now);
+    private IReadOnlyList<ReservationDto> _bookings = [];
+    private IReadOnlyList<TableDto> _tables = [];
+    private Draft? _draft;
+    private (ReservationDto Booking, ReservationStatus Status)? _closing;
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
+
+    private bool CanUse => User.Can(Permissions.Orders.Create);
+
+    private IEnumerable<(string, string)> DurationOptions =>
+        new[] { 60, 90, 120, 150, 180, 240 }.Select(m => (m.ToString(), T("bookings.minutes", ("n", m.ToString()))));
+
+    private IEnumerable<(string, string)> TableOptions =>
+        new[] { ("", T("bookings.anyTable")) }.Concat(_tables.Where(t => t.IsActive).Select(t => (t.Id.ToString(), T("bookings.tableSeats", ("number", t.Number), ("seats", t.Seats.ToString())))));
+
+    protected override async Task OnInitializedAsync()
+    {
+        Live.OrdersChanged += OnLive;
+        await base.OnInitializedAsync();
+        try { await Live.EnsureConnectedAsync(); } catch { /* the page still works without live updates */ }
+    }
+
+    protected override async Task LoadAsync()
+    {
+        if (!CanUse) return;
+        var bookings = Api.GetReservationsAsync(_date);
+        var tables = Api.GetTablesAsync();
+        (_bookings, _tables) = (await bookings, await tables);
+    }
+
+    private void OnLive() => InvokeAsync(async () =>
+    {
+        try { await LoadAsync(); StateHasChanged(); } catch { /* next change */ }
+    });
+
+    private Task SetDateAsync(string? value)
+    {
+        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)) return Task.CompletedTask;
+        _date = date;
+        return RunAsync(LoadAsync);
+    }
+
+    private Task GoTodayAsync() => SetDateAsync(Iso(Today));
+
+    private Task MoveDayAsync(int days) => SetDateAsync(Iso(_date.AddDays(days)));
+
+    private static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static string StatusKind(ReservationStatus s) => s switch
+    {
+        ReservationStatus.Booked => "brand",
+        ReservationStatus.Seated => "success",
+        _ => "neutral"
+    };
+
+    private static string TableClass(TableDto t) =>
+        t.OpenOrderId is not null ? "busy" : t.NeedsCleaning ? "dirty" : t.ReservedAt is not null ? "reserved" : "";
+
+    private string TableLine(TableDto t) =>
+        t.OpenOrderNumber is not null ? $"#{t.OpenOrderNumber}"
+        : t.NeedsCleaning ? T("bookings.tapToClean")
+        : t.ReservedAt is { } at ? $"{at.ToLocalTime():h:mm tt} {t.ReservedFor}"
+        : T("bookings.seats", ("n", t.Seats.ToString()));
+
+    private string TableTitle(TableDto t) => t.NeedsCleaning ? T("bookings.tapToClean") : TableLine(t);
+
+    /// <summary>A table waiting to be cleaned is marked clean; a busy one opens its order.</summary>
+    private async Task TableClicked(TableDto t)
+    {
+        if (t.OpenOrderId is { } orderId)
+        {
+            Nav.NavigateTo($"app/orders/{orderId}");
+        }
+        else if (t.NeedsCleaning)
+        {
+            await RunAsync(async () =>
+            {
+                await Api.MarkTableCleanAsync(t.Id);
+                _tables = await Api.GetTablesAsync();
+            }, T("bookings.cleaned", ("number", t.Number)));
+        }
+    }
+
+    private void Edit(ReservationDto? b)
+    {
+        Error = null;
+        _draft = b is null
+            ? new Draft { Date = Iso(_date) }
+            : new Draft
+            {
+                Id = b.Id,
+                Name = b.CustomerName,
+                Phone = b.Phone,
+                Party = b.PartySize.ToString(),
+                Date = b.At.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Time = b.At.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture),
+                Duration = b.DurationMinutes.ToString(),
+                TableId = b.TableId?.ToString() ?? "",
+                Notes = b.Notes
+            };
+    }
+
+    private async Task SaveAsync()
+    {
+        var d = _draft!;
+        // The browser gives yyyy-MM-dd and HH:mm (HH:mm:ss with a seconds step), whatever the display language.
+        if (!DateOnly.TryParseExact(d.Date?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
+            || !TimeOnly.TryParseExact(d.Time?.Trim(), ["HH:mm", "HH:mm:ss", "H:mm"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+        {
+            Error = T("bookings.pickTime");
+            return;
+        }
+        var local = day.ToDateTime(time, DateTimeKind.Local);
+        var ok = await RunAsync(async () =>
+        {
+            var request = new SaveReservationRequest(d.Name ?? "", d.Phone, int.TryParse(d.Party, out var party) ? party : 0, new DateTimeOffset(local),
+                int.TryParse(d.Duration, out var minutes) ? minutes : 90, Guid.TryParse(d.TableId, out var table) ? table : null, d.Notes);
+            await Api.SaveReservationAsync(d.Id, request);
+            _date = DateOnly.FromDateTime(local);
+            await LoadAsync();
+        }, T("common.saved"));
+        if (ok) _draft = null;
+    }
+
+    private Task SeatAsync(ReservationDto b) => RunAsync(async () =>
+    {
+        await Api.SeatReservationAsync(b.Id, null);
+        await LoadAsync();
+    }, T("bookings.seated", ("name", b.CustomerName)));
+
+    private Task CloseAsync() => RunAsync(async () =>
+    {
+        var (booking, status) = _closing!.Value;
+        _closing = null;
+        if (status == ReservationStatus.NoShow) await Api.NoShowReservationAsync(booking.Id);
+        else await Api.CancelReservationAsync(booking.Id);
+        await LoadAsync();
+    });
+
+    public override void Dispose()
+    {
+        Live.OrdersChanged -= OnLive;
+        base.Dispose();
+    }
+}

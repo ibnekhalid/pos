@@ -16,7 +16,25 @@ public enum StockMovementType
     SaleReversal = 3,
     Wastage = 4,
     Adjustment = 5,
-    CountVariance = 6
+    CountVariance = 6,
+    TransferOut = 7,
+    TransferIn = 8
+}
+
+public enum PurchaseOrderStatus
+{
+    Draft = 0,
+    Ordered = 1,
+    PartiallyReceived = 2,
+    Received = 3,
+    Cancelled = 4
+}
+
+public enum StockTransferStatus
+{
+    InTransit = 0,
+    Received = 1,
+    Cancelled = 2
 }
 
 public enum DealType

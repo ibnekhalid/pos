@@ -187,6 +187,15 @@ public class RestaurantApi(ApiClient api, SessionStore session)
     public Task<DiningAreaDto> SaveAreaAsync(Guid? id, SaveDiningAreaRequest request) =>
         id is null ? api.PostAsync<DiningAreaDto>("api/dining-areas", request) : api.PutAsync<DiningAreaDto>($"api/dining-areas/{id}", request);
     public Task<IReadOnlyList<TableDto>> GetTablesAsync() => api.GetAsync<IReadOnlyList<TableDto>>("api/tables");
+    public Task<TableDto> MarkTableCleanAsync(Guid id) => api.PostAsync<TableDto>($"api/tables/{id}/clean", new { });
+
+    public Task<IReadOnlyList<ReservationDto>> GetReservationsAsync(DateOnly date) => api.GetAsync<IReadOnlyList<ReservationDto>>($"api/reservations?date={date:yyyy-MM-dd}");
+    public Task<ReservationDto> SaveReservationAsync(Guid? id, SaveReservationRequest request) => id is { } reservationId
+        ? api.PutAsync<ReservationDto>($"api/reservations/{reservationId}", request)
+        : api.PostAsync<ReservationDto>("api/reservations", request);
+    public Task<ReservationDto> SeatReservationAsync(Guid id, Guid? tableId) => api.PostAsync<ReservationDto>($"api/reservations/{id}/seat", new SeatReservationRequest(tableId));
+    public Task<ReservationDto> CancelReservationAsync(Guid id) => api.PostAsync<ReservationDto>($"api/reservations/{id}/cancel", new { });
+    public Task<ReservationDto> NoShowReservationAsync(Guid id) => api.PostAsync<ReservationDto>($"api/reservations/{id}/no-show", new { });
     public Task<TableDto> SaveTableAsync(Guid? id, SaveTableRequest request) =>
         id is null ? api.PostAsync<TableDto>("api/tables", request) : api.PutAsync<TableDto>($"api/tables/{id}", request);
 
@@ -260,6 +269,23 @@ public class RestaurantApi(ApiClient api, SessionStore session)
         api.GetAsync<IReadOnlyList<StockMovementDto>>(itemId is null ? "api/inventory/movements" : $"api/inventory/movements?itemId={itemId}");
     public Task<IReadOnlyList<StockReceiptDto>> GetStockReceiptsAsync() => api.GetAsync<IReadOnlyList<StockReceiptDto>>("api/inventory/receipts");
     public Task<StockReceiptDto> ReceiveStockAsync(CreateStockReceiptRequest request) => api.PostAsync<StockReceiptDto>("api/inventory/receipts", request);
+
+    public Task<IReadOnlyList<SupplierDto>> GetSuppliersAsync() => api.GetAsync<IReadOnlyList<SupplierDto>>("api/inventory/suppliers");
+    public Task<SupplierDto> SaveSupplierAsync(Guid? id, SaveSupplierRequest request) => id is { } supplierId
+        ? api.PutAsync<SupplierDto>($"api/inventory/suppliers/{supplierId}", request)
+        : api.PostAsync<SupplierDto>("api/inventory/suppliers", request);
+    public Task<IReadOnlyList<PurchaseOrderDto>> GetPurchaseOrdersAsync() => api.GetAsync<IReadOnlyList<PurchaseOrderDto>>("api/inventory/purchase-orders");
+    public Task<PurchaseOrderDto> GetPurchaseOrderAsync(Guid id) => api.GetAsync<PurchaseOrderDto>($"api/inventory/purchase-orders/{id}");
+    public Task<PurchaseOrderDto> SavePurchaseOrderAsync(Guid? id, SavePurchaseOrderRequest request) => id is { } orderId
+        ? api.PutAsync<PurchaseOrderDto>($"api/inventory/purchase-orders/{orderId}", request)
+        : api.PostAsync<PurchaseOrderDto>("api/inventory/purchase-orders", request);
+    public Task<PurchaseOrderDto> PlacePurchaseOrderAsync(Guid id) => api.PostAsync<PurchaseOrderDto>($"api/inventory/purchase-orders/{id}/place", new { });
+    public Task<PurchaseOrderDto> CancelPurchaseOrderAsync(Guid id) => api.PostAsync<PurchaseOrderDto>($"api/inventory/purchase-orders/{id}/cancel", new { });
+
+    public Task<IReadOnlyList<StockTransferDto>> GetTransfersAsync() => api.GetAsync<IReadOnlyList<StockTransferDto>>("api/inventory/transfers");
+    public Task<StockTransferDto> SendTransferAsync(CreateStockTransferRequest request) => api.PostAsync<StockTransferDto>("api/inventory/transfers", request);
+    public Task<StockTransferDto> ReceiveTransferAsync(Guid id) => api.PostAsync<StockTransferDto>($"api/inventory/transfers/{id}/receive", new { });
+    public Task<StockTransferDto> CancelTransferAsync(Guid id) => api.PostAsync<StockTransferDto>($"api/inventory/transfers/{id}/cancel", new { });
     public Task<StockMovementDto> AdjustStockAsync(StockAdjustmentRequest request) => api.PostAsync<StockMovementDto>("api/inventory/adjustments", request);
     public Task<IReadOnlyList<StockCountDto>> GetStockCountsAsync() => api.GetAsync<IReadOnlyList<StockCountDto>>("api/inventory/counts");
     public Task<StockCountDto> CountStockAsync(CreateStockCountRequest request) => api.PostAsync<StockCountDto>("api/inventory/counts", request);
