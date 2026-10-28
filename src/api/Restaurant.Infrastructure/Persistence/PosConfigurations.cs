@@ -166,6 +166,9 @@ internal class OrderConfiguration : IEntityTypeConfiguration<Order>
     public void Configure(EntityTypeBuilder<Order> b)
     {
         b.Property(x => x.OrderNumber).HasMaxLength(20).IsRequired();
+        b.Property(x => x.OfflineNumber).HasMaxLength(20);
+        b.Property(x => x.ReviewNote).HasMaxLength(1000);
+        b.HasIndex(x => new { x.BranchId, x.NeedsReview }).HasFilter("\"NeedsReview\"");
         b.Property(x => x.TableLabel).HasMaxLength(10);
         b.Property(x => x.CustomerName).HasMaxLength(100);
         b.Property(x => x.CustomerPhone).HasMaxLength(30);

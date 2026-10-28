@@ -11,6 +11,12 @@
 @inject UiInterop Ui
 @inject PrintService Printer
 @inject LiveUpdates Live
+@inject OfflineStore Offline
+@inject OfflineSync OfflineSync
+@inject DeviceRegistration Device
+@inject SessionStore Session
+@using Restaurant.Client.Core.Offline
+@using Restaurant.Contracts.Receipts
 
 <PageTitle>@T("nav.pos")</PageTitle>
 
@@ -30,10 +36,21 @@ else if (_session is null)
 }
 else if (_menu is not null)
 {
+    @if (_offline)
+    {
+        <Notice Kind="warning" Class="rp-mb">
+            <span class="rp-strong">@T("offline.banner")</span> @T("offline.bannerText", ("n", WaitingCount.ToString()))
+            <button class="rp-link" @onclick="RetryOnlineAsync">@T("offline.tryNow")</button>
+        </Notice>
+    }
+    else if (WaitingCount > 0)
+    {
+        <Notice Kind="info" Class="rp-mb">@T("offline.waiting", ("n", WaitingCount.ToString())) <a class="rp-link" href="app/pos/offline">@T("offline.view")</a></Notice>
+    }
     <div class="rp-pos">
         <nav class="rp-pos-cats" aria-label="@T("pos.categories")">
             <button class="@(_category is null && !_dealsTab ? "active" : "")" @onclick="() => { _category = null; _dealsTab = false; }">@T("pos.all")</button>
-            @if (_menu.Deals is { Count: > 0 })
+            @if (_menu.Deals is { Count: > 0 } && !_offline)
             {
                 <button class="@(_dealsTab ? "active" : "")" style="--cat:#7C3AED" @onclick="() => { _dealsTab = true; _category = null; }"><Icon Name="pricetags-outline" Size="16" /> @T("nav.deals")</button>
             }
@@ -168,7 +185,7 @@ else if (_menu is not null)
             </div>
 
             <div class="rp-cart-totals">
-                @if (_existing is null && HasItems)
+                @if (_existing is null && HasItems && !_offline)
                 {
                     <div class="rp-coupon">
                         <input class="rp-input rp-boxed" placeholder="@T("pos.coupon")" value="@_coupon" dir="ltr" maxlength="30" aria-label="@T("pos.coupon")"
@@ -220,6 +237,8 @@ else if (_menu is not null)
 <ItemOptionsDialog @bind-Line="_editing" Groups="EditingGroups" IsEdit="_editingExisting" OnConfirm="ConfirmLineAsync" />
 <DealDialog @bind-Entry="_editingDeal" Menu="_menu" IsEdit="_editingExisting" OnConfirm="ConfirmDealAsync" />
 <PaymentDialog @bind-Open="_payOpen" @bind-Order="_payOrder" OnDone="PaidAsync" />
+<OfflinePayDialog Open="_offlinePayNumber is not null" OpenChanged="open => { if (!open) _offlinePayNumber = null; }" Number="@_offlinePayNumber"
+                  TotalFor="cash => Estimate(cash).Total" Methods="_snapshot?.PaymentMethods ?? []" OnConfirm="OfflinePaidAsync" />
 
 @code {
     [SupplyParameterFromQuery(Name = "order")] public Guid? OrderId { get; set; }
@@ -280,14 +299,30 @@ else if (_menu is not null)
     protected override async Task LoadAsync()
     {
         if (!User.Can(Permissions.Orders.Create)) return;
-        _session = await Api.GetCurrentSessionAsync();
-        if (_session is null) return;
+        OfflineSync.Changed -= OnOfflineChanged;
+        OfflineSync.Changed += OnOfflineChanged;
+        try
+        {
+            _session = await Api.GetCurrentSessionAsync();
+            if (_session is null) return;
 
-        var menu = Api.GetPosMenuAsync();
-        var tables = Api.GetTablesAsync();
-        _menu = await menu;
-        _tables = await tables;
+            var menu = Api.GetPosMenuAsync();
+            var tables = Api.GetTablesAsync();
+            _menu = await menu;
+            _tables = await tables;
+            _offline = false;
+            if (CanOffline)
+            {
+                OfflineSync.Report(true);
+                _ = SaveSnapshotAsync();
+            }
+        }
+        catch (NetworkException) when (CanOffline)
+        {
+            if (!await UseSnapshotAsync()) throw;
+        }
         if (_tables.Count == 0) _type = OrderType.Takeaway;
+        if (_offline) return;
 
         if (OrderId is { } id)
         {
@@ -384,7 +419,7 @@ else if (_menu is not null)
         _customerPhone = phone;
         _customer = null;
         var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
-        if (digits.Length < 10) return;
+        if (digits.Length < 10 || _offline) return;
         try
         {
             var found = await Api.SearchCustomersAsync(digits);
@@ -433,6 +468,12 @@ else if (_menu is not null)
 
     private void PickTable(TableDto table)
     {
+        if (_offline && (table.OpenOrderId is not null || _offlineTables.Contains(table.Id)))
+        {
+            // Offline there's no adding to an open order: its bill is on the server.
+            Error = T("offline.tableBusy", ("number", table.Number));
+            return;
+        }
         if (table.OpenOrderId is { } openOrder)
         {
             // An occupied table: carry on with its order instead of starting another.
@@ -451,6 +492,11 @@ else if (_menu is not null)
             _preview = null;
             return;
         }
+        if (_offline)
+        {
+            _preview = OfflinePreview();
+            return;
+        }
         var delay = _previewDelay = new CancellationTokenSource();
         try
         {
@@ -461,6 +507,12 @@ else if (_menu is not null)
         }
         catch (TaskCanceledException)
         {
+        }
+        catch (NetworkException) when (CanOffline && _existing is null && _deals.Count == 0)
+        {
+            // The connection dropped: carry on offline from the saved menu.
+            if (await UseSnapshotAsync()) _preview = OfflinePreview();
+            else Error = T("common.networkError");
         }
         catch (Exception ex)
         {
@@ -477,6 +529,11 @@ else if (_menu is not null)
     private async Task SubmitAsync(bool pay)
     {
         if (Busy) return;
+        if (_offline)
+        {
+            await SubmitOfflineAsync(pay);
+            return;
+        }
         _paying = pay;
         OrderDto? order = _existing;
 
@@ -491,7 +548,17 @@ else if (_menu is not null)
                         CustomerId: _customer?.Id))
                     : await Api.AddOrderLinesAsync(_existing.Id, new AddOrderLinesRequest(_requestId, Lines(), SendToKitchen: true, Deals: deals));
             });
-            if (!ok) return;
+            if (!ok)
+            {
+                // The connection dropped while sending. The same request id goes in the outbox, so if the server did get it
+                // the sync finds that order instead of making a second one.
+                if (Error == T("common.networkError") && CanOffline && _existing is null && _deals.Count == 0 && await UseSnapshotAsync())
+                {
+                    Error = null;
+                    await SubmitOfflineAsync(pay);
+                }
+                return;
+            }
 
             _requestId = Guid.NewGuid();
             _stockWarnings = order!.StockWarnings ?? [];
@@ -512,6 +579,157 @@ else if (_menu is not null)
             if (_existing is not null) Nav.NavigateTo("app/pos");
         }
         _tables = await Api.GetTablesAsync();
+    }
+
+    // ------------------------------------------------------------ offline (desktop counter PCs, Phase 6)
+
+    private bool _offline;
+    private OfflineSnapshot? _snapshot;
+    private string? _offlinePayNumber;
+    private readonly HashSet<Guid> _offlineTables = [];
+
+    /// <summary>Only a registered counter PC keeps orders offline: it has a device to number them and files to keep them in.</summary>
+    private bool CanOffline => Device.Supported && Device.IsRegistered && Device.Info?.TenantId == Session.Current?.TenantId;
+
+    private int WaitingCount => OfflineSync.ForCurrentBranch().Count();
+
+    private async Task SaveSnapshotAsync()
+    {
+        try
+        {
+            if (_session is null || _menu is null || Session.Current is not { TenantId: { } tenantId, BranchId: { } branchId }) return;
+            var taxes = Api.GetTaxRatesAsync();
+            var methods = Api.GetPaymentMethodsAsync();
+            var branch = Api.GetBranchAsync(branchId);
+            await Offline.SaveSnapshotAsync(new OfflineSnapshot(tenantId, branchId, _session, _menu, _tables, await taxes, await methods, await branch,
+                Brand.Branding, Brand.Tenant, DateTimeOffset.UtcNow));
+        }
+        catch
+        {
+            // The previous snapshot stays; it is saved again on the next load.
+        }
+    }
+
+    /// <summary>Switches to offline selling from the last saved menu, if there is one for an open day at this branch.</summary>
+    private async Task<bool> UseSnapshotAsync()
+    {
+        if (_offline) return true;
+        if (Session.Current is not { TenantId: { } tenantId, BranchId: { } branchId }) return false;
+        var snapshot = await Offline.LoadSnapshotAsync(tenantId, branchId);
+        if (snapshot is null || snapshot.Session.Status != SessionStatus.Open) return false;
+
+        _snapshot = snapshot;
+        _session ??= snapshot.Session;
+        _menu ??= snapshot.Menu;
+        if (_tables.Count == 0) _tables = snapshot.Tables;
+        _offline = true;
+        if (Brand.Branding is null && snapshot.Branding is not null) Brand.Apply(snapshot.Branding);
+        OfflineSync.Report(false);
+        if (HasItems) _preview = OfflinePreview();
+        return true;
+    }
+
+    private void OnOfflineChanged() => InvokeAsync(async () =>
+    {
+        // Back online: reload the live menu, tables and day (the outbox is sent by OfflineSync).
+        if (_offline && !OfflineSync.Unreachable && !HasItems) await RetryOnlineAsync();
+        StateHasChanged();
+    });
+
+    private async Task RetryOnlineAsync()
+    {
+        try
+        {
+            var session = await Api.GetCurrentSessionAsync();
+            _offline = false;
+            _session = session;
+            _snapshot = null;
+            _offlineTables.Clear();
+            OfflineSync.Report(true);
+            await ReloadAsync();
+            if (HasItems) await RefreshPreviewAsync();
+        }
+        catch (NetworkException)
+        {
+            Error = T("offline.stillOffline");
+        }
+    }
+
+    private OfflineEstimate.Result Estimate(bool cash) =>
+        OfflineEstimate.Price(_cart.Select(l => l.Total), _type, cash, _snapshot?.TaxRates ?? [], _snapshot!.Branch);
+
+    private PriceBreakdownDto OfflinePreview()
+    {
+        var e = Estimate(cash: true);
+        return new PriceBreakdownDto(e.Subtotal, 0, e.ServiceCharge, e.ServiceChargePercent, e.Taxes, e.TaxTotal, e.Rounding, e.Total, []);
+    }
+
+    /// <summary>Send or Pay while offline: the order is numbered on this PC, kept in its outbox, and its tickets print here.</summary>
+    private async Task SubmitOfflineAsync(bool pay)
+    {
+        Success = null;
+        if (_existing is not null) { Error = T("offline.noAdding"); return; }
+        if (_deals.Count > 0) { Error = T("offline.noDeals"); return; }
+        if (!HasItems || _snapshot is null || Device.Info is null) return;
+
+        var number = await Offline.NextNumberAsync(Device.Info.DeviceId);
+        if (pay && User.Can(Permissions.Payments.Take))
+        {
+            _offlinePayNumber = number;
+            return; // continues in OfflinePaidAsync
+        }
+        await SaveOfflineAsync(number, null);
+    }
+
+    private async Task OfflinePaidAsync(OfflinePaymentRequest payment)
+    {
+        var number = _offlinePayNumber!;
+        _offlinePayNumber = null;
+        await SaveOfflineAsync(number, payment);
+    }
+
+    private async Task SaveOfflineAsync(string number, OfflinePaymentRequest? payment)
+    {
+        var snapshot = _snapshot!;
+        var method = payment is null ? null : snapshot.PaymentMethods.FirstOrDefault(m => m.Id == payment.PaymentMethodId);
+        var cash = method?.IsCash ?? true;
+        var estimate = Estimate(cash);
+        var tableId = _type == OrderType.DineIn ? _tableId : null;
+        var table = _tables.FirstOrDefault(t => t.Id == tableId);
+        var request = new OfflineOrderRequest(
+            new CreateOrderRequest(_requestId, _type, tableId, null, Blank(_customerName), Blank(_customerPhone), null, Lines(), null, SendToKitchen: true),
+            number, DateTimeOffset.UtcNow, User.Me!.UserId, snapshot.Session.Id, estimate.Total,
+            payment is null ? [] : [payment with { Amount = estimate.Total }], await Printer.CounterRegisterIdAsync());
+
+        var lines = _cart.Select(l => new OfflineReceipts.Line(l.Quantity, l.Item.Name + (l.Variant is null ? "" : $" ({l.Variant.Name})"),
+            l.Modifiers.Select(m => m.Name).ToList(), l.Notes, l.Total)).ToList();
+        try
+        {
+            await Offline.AddAsync(new OfflineEntry(Guid.NewGuid(), snapshot.TenantId, snapshot.BranchId, request,
+                string.Join(", ", lines.Select(l => $"{l.Quantity} × {l.Name}"))));
+        }
+        catch (Exception ex)
+        {
+            // Nothing was kept: say so plainly, the order must not be served on a ticket that won't reach the till.
+            Error = T("offline.notSaved", ("error", ex.Message));
+            return;
+        }
+
+        var cashier = User.Me.FullName;
+        var kitchen = OfflineReceipts.Build(PrintKind.KitchenTicket, snapshot, number, _type, table?.Number, cashier, Blank(_customerName), lines, estimate, [],
+            T("offline.ticketNote"));
+        var printError = await Printer.PrintLocalAsync(kitchen);
+        if (payment is not null)
+        {
+            var change = payment.Tendered is { } tendered ? tendered - estimate.Total : (decimal?)null;
+            var receipt = OfflineReceipts.Build(PrintKind.Receipt, snapshot, number, _type, table?.Number, cashier, Blank(_customerName), lines, estimate,
+                [new ReceiptPaymentDto(method?.Name ?? "", estimate.Total, payment.Tendered, change, payment.Reference)], T("offline.receiptNote"));
+            printError ??= await Printer.PrintLocalAsync(receipt, openDrawer: cash);
+        }
+
+        if (tableId is { } taken) _offlineTables.Add(taken);
+        ResetCart();
+        Success = printError is null ? T("offline.saved", ("number", number)) : T("offline.savedPrintFailed", ("number", number), ("error", printError));
     }
 
     private async Task PaidAsync()
@@ -568,6 +786,7 @@ else if (_menu is not null)
 
     public async ValueTask DisposeAsync()
     {
+        OfflineSync.Changed -= OnOfflineChanged;
         Live.OrdersChanged -= OnOrdersChanged;
         if (_hotkeys is { } id) await Ui.UnregisterHotkeysAsync(id);
         _self?.Dispose();

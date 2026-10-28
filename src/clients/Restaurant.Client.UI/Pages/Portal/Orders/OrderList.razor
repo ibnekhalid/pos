@@ -10,6 +10,7 @@
         <div class="rp-segmented">
             <button class="@(_scope == "open" ? "active" : "")" @onclick="@(() => SetScopeAsync("open"))">@T("orders.open")</button>
             <button class="@(_scope == "today" ? "active" : "")" @onclick="@(() => SetScopeAsync("today"))">@T("orders.today")</button>
+            @if (User.Can(Permissions.Orders.Void)) { <button class="@(_scope == "review" ? "active" : "")" @onclick="@(() => SetScopeAsync("review"))">@T("offline.toCheck")</button> }
         </div>
         @if (User.Can(Permissions.Orders.Create)) { <a class="rp-btn" href="app/pos"><Icon Name="add" /> @T("pos.newOrder")</a> }
     </Actions>
@@ -24,7 +25,7 @@ else
     @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
     @if (_orders.Count == 0)
     {
-        <EmptyState Icon="receipt-outline" Title="@T(_scope == "open" ? "orders.noneOpen" : "orders.noneToday")" />
+        <EmptyState Icon="receipt-outline" Title="@T(EmptyKey)" />
     }
     else
     {
@@ -34,7 +35,7 @@ else
                 @foreach (var order in _orders)
                 {
                     <tr class="rp-clickable" @onclick="@(() => Nav.NavigateTo($"app/orders/{order.Id}"))">
-                        <td class="rp-strong">@order.OrderNumber</td>
+                        <td class="rp-strong">@order.OrderNumber @if (order.OfflineNumber is not null) { <span class="rp-hint">@order.OfflineNumber</span> } @if (order.NeedsReview) { <Badge Kind="warning">@T("offline.needsReview")</Badge> }</td>
                         <td>@T($"orderType.{order.Type}")@(order.TableLabel is null ? "" : $" · {order.TableLabel}") <span class="rp-hint">@order.CustomerName</span></td>
                         <td><OrderBadges Status="order.Status" Payment="order.PaymentStatus" /></td>
                         <td class="rp-right">@Money(order.Total)</td>
@@ -50,6 +51,8 @@ else
 @code {
     private IReadOnlyList<OrderSummaryDto> _orders = [];
     private string _scope = "open";
+
+    private string EmptyKey => _scope switch { "open" => "orders.noneOpen", "review" => "offline.nothingToCheck", _ => "orders.noneToday" };
     private Timer? _refresh;
 
     protected override async Task LoadAsync()

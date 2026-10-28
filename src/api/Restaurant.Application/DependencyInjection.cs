@@ -57,6 +57,7 @@ public static class DependencyInjection
         services.AddScoped<SessionService>();
         services.AddScoped<OrderProgress>();
         services.AddScoped<OrderService>();
+        services.AddScoped<OfflineSyncService>();
         services.AddScoped<KitchenService>();
         services.AddScoped<PaymentService>();
         services.AddScoped<ReceiptService>();

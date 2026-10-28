@@ -111,6 +111,14 @@ public class SessionStore(ISecureStore secureStore)
         Changed?.Invoke();
     }
 
+    /// <summary>The signed-in person unlocked with their PIN while the API couldn't be reached (checked on this PC).</summary>
+    public void UnlockOffline()
+    {
+        if (!IsLocked) return;
+        IsLocked = false;
+        Changed?.Invoke();
+    }
+
     public void Lock()
     {
         if (Current is null || IsLocked) return;

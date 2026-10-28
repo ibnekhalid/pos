@@ -1,5 +1,6 @@
 @inherits PageBase
 @inject DeviceRegistration Device
+@inject Restaurant.Client.Core.Offline.OfflinePin OfflinePin
 @* Counter sign-in on a registered computer: pick your name, enter your PIN. *@
 @if (Loading)
 {
@@ -80,9 +81,11 @@ else
         var token = await Device.GetTokenAsync();
         if (token is null || _selected is null) return;
 
-        var ok = await RunAsync(() => Api.PinLoginAsync(token, _selected.MembershipId, pin));
+        var membershipId = _selected.MembershipId;
+        var ok = await RunAsync(() => Api.PinLoginAsync(token, membershipId, pin));
         if (ok)
         {
+            await OfflinePin.RememberAsync(membershipId, pin);
             await OnSignedIn.InvokeAsync();
         }
         else

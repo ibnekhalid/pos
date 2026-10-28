@@ -1,0 +1,107 @@
+@page "/app/pos/offline"
+@inherits PageBase
+@inject OfflineStore Offline
+@inject OfflineSync OfflineSync
+@using Restaurant.Client.Core.Offline
+@* Orders this counter PC took offline: waiting to be sent, refused (with the reason), and sent (paper number →
+   order number). *@
+
+<PageTitle>@T("offline.title")</PageTitle>
+<PageHeader Title="@T("offline.title")" Subtitle="@T("offline.subtitle")" BackHref="app/pos">
+    <Actions>
+        @if (Waiting.Count > 0) { <RpButton Icon="cloud-upload-outline" Loading="Busy" OnClick="SendAsync">@T("offline.sendNow")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+@if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+
+<section class="rp-panel">
+    <h2>@T("offline.waitingTitle", ("n", Waiting.Count.ToString()))</h2>
+    @if (Waiting.Count == 0)
+    {
+        <p class="rp-hint">@T("offline.nothingWaiting")</p>
+    }
+    else
+    {
+        <div class="rp-list">
+            @foreach (var e in Waiting)
+            {
+                <div class="rp-list-item rp-wrap">
+                    <span class="rp-grow">
+                        <span class="rp-strong">@e.Request.OfflineNumber</span> <span class="rp-hint">@Format.DateTime(e.Request.TakenAt) · @Money(e.Request.EstimatedTotal)@(e.Request.Payments.Count > 0 ? " · " + T("offline.paid") : "")</span>
+                        <span class="rp-hint">@e.Summary</span>
+                        @if (e.LastError is not null) { <span class="rp-error-text">@T("offline.refused", ("n", e.Attempts.ToString())) @e.LastError</span> }
+                    </span>
+                    @if (User.Can(Permissions.Orders.Void)) { <RpButton Small Variant="ghost" OnClick="() => _discarding = e">@T("offline.discard")</RpButton> }
+                </div>
+            }
+        </div>
+        <p class="rp-hint rp-mt-sm">@T("offline.waitingHint")</p>
+    }
+    @if (Offline.Outbox.Count > Waiting.Count)
+    {
+        <p class="rp-hint rp-mt-sm">@T("offline.otherBranches", ("n", (Offline.Outbox.Count - Waiting.Count).ToString()))</p>
+    }
+</section>
+
+<section class="rp-panel">
+    <h2>@T("offline.sentTitle")</h2>
+    @if (Offline.Synced.Count == 0)
+    {
+        <p class="rp-hint">@T("offline.nothingSent")</p>
+    }
+    else
+    {
+        <table class="rp-table">
+            <thead><tr><th>@T("offline.paperNumber")</th><th>@T("reports.order")</th><th class="rp-right">@T("offline.charged")</th><th>@T("offline.sentAt")</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var s in Offline.Synced)
+                {
+                    <tr>
+                        <td class="rp-strong">@s.OfflineNumber</td>
+                        <td><a href="app/orders/@s.OrderId">@s.OrderNumber</a></td>
+                        <td class="rp-right">@Money(s.Total)</td>
+                        <td class="rp-nowrap">@Format.DateTime(s.SyncedAt)</td>
+                        <td>@if (s.NeedsReview) { <Badge Kind="warning">@T("offline.needsReview")</Badge> <div class="rp-hint">@s.ReviewNote</div> }</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<ConfirmDialog Open="_discarding is not null" OpenChanged="open => { if (!open) _discarding = null; }" Title="@T("offline.discardTitle")"
+               Message="@T("offline.discardText", ("number", _discarding?.Request.OfflineNumber ?? ""))" ConfirmText="@T("offline.discard")" Destructive OnConfirm="DiscardAsync" />
+
+@code {
+    private OfflineEntry? _discarding;
+
+    private List<OfflineEntry> Waiting => OfflineSync.ForCurrentBranch().ToList();
+
+    protected override async Task LoadAsync()
+    {
+        await Offline.InitializeAsync();
+        Offline.Changed += Refresh;
+    }
+
+    private Task SendAsync() => RunAsync(async () =>
+    {
+        var booked = await OfflineSync.SyncAsync();
+        if (OfflineSync.Unreachable) throw new NetworkException();
+        Success = T("offline.sentDone", ("n", booked.ToString()));
+    });
+
+    private async Task DiscardAsync()
+    {
+        var e = _discarding!;
+        _discarding = null;
+        await Offline.DiscardAsync(e.Id);
+    }
+
+    public override void Dispose()
+    {
+        Offline.Changed -= Refresh;
+        base.Dispose();
+    }
+}

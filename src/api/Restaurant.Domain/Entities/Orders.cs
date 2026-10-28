@@ -67,6 +67,16 @@ public class Order : BranchEntity
     public DateTimeOffset? ClosedAt { get; set; }
     public string? VoidReason { get; set; }
 
+    /// <summary>Taken on a counter PC while the API couldn't be reached: the number printed on its paper ticket.</summary>
+    public string? OfflineNumber { get; set; }
+
+    public DateTimeOffset? TakenOfflineAt { get; set; }
+
+    /// <summary>Something didn't match when it was synced (price, table, business day, payment): a manager checks it.</summary>
+    public bool NeedsReview { get; set; }
+
+    public string? ReviewNote { get; set; }
+
     /// <summary>PostgreSQL xmin: two cashiers changing the same order at once get a conflict, not lost updates.</summary>
     public uint Version { get; set; }
 

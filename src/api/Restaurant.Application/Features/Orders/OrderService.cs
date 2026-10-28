@@ -79,6 +79,22 @@ public class OrderService(
             result.DealDiscount, applied);
     }
 
+    private bool _alreadyServed;
+
+    /// <summary>Creates an order that was taken offline: like CreateAsync, but a stock shortfall never refuses it.</summary>
+    public async Task<OrderDto> CreateServedAsync(CreateOrderRequest request, CancellationToken ct)
+    {
+        _alreadyServed = true;
+        try
+        {
+            return await CreateAsync(request with { SendToKitchen = true }, ct);
+        }
+        finally
+        {
+            _alreadyServed = false;
+        }
+    }
+
     public async Task<OrderDto> CreateAsync(CreateOrderRequest request, CancellationToken ct)
     {
         var tenantId = tenant.RequireTenantId();
@@ -376,7 +392,11 @@ public class OrderService(
     {
         var branchId = tenant.RequireBranchId();
         var query = db.Orders.Where(o => o.BranchId == branchId);
-        if (scope == "today")
+        if (scope == "review")
+        {
+            query = query.Where(o => o.NeedsReview);
+        }
+        else if (scope == "today")
         {
             var sessionId = await db.BusinessSessions.Where(s => s.BranchId == branchId)
                 .OrderByDescending(s => s.StartedAt).Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct);
@@ -390,7 +410,7 @@ public class OrderService(
         return await query.OrderByDescending(o => o.CreatedAt).Take(300)
             .Select(o => new OrderSummaryDto(o.Id, o.OrderNumber, o.Type, o.Status, o.PaymentStatus, o.TableLabel, o.CustomerName,
                 o.Total, o.Total > o.PaidTotal ? o.Total - o.PaidTotal : 0,
-                o.Lines.Where(l => l.Status == OrderLineStatus.Active).Sum(l => l.Quantity), o.CreatedAt))
+                o.Lines.Where(l => l.Status == OrderLineStatus.Active).Sum(l => l.Quantity), o.CreatedAt, o.OfflineNumber, o.NeedsReview))
             .ToListAsync(ct);
     }
 
@@ -623,7 +643,7 @@ public class OrderService(
     private async Task<(List<KitchenTicket> Tickets, IReadOnlyList<string> Warnings)> SendLinesAsync(Order order, int round, DateTimeOffset now, CancellationToken ct)
     {
         var unsent = order.Lines.Where(l => l.Status == OrderLineStatus.Active && l.SentAt is null).ToList();
-        var warnings = await stock.DeductAsync(order, unsent, ct);
+        var warnings = await stock.DeductAsync(order, unsent, ct, _alreadyServed);
         return (CreateTickets(order, round, now), warnings);
     }
 
@@ -741,7 +761,8 @@ public class OrderService(
             payments.Select(p => new PaymentDto(p.Id, p.MethodName, p.IsCash, p.Amount, p.Tendered, p.Change, p.Reference, p.CreatedAt, p.TakenByName, p.RefundedAmount)).ToList(),
             refunds.Select(r => new RefundDto(r.Id, r.PaymentId, r.Amount, r.Reason, r.CreatedAt, r.IsCash, r.ByName)).ToList(),
             o.CreatedAt, o.CreatedByName, o.VoidReason, sessionOpen,
-            o.CustomerId, o.CouponCode, o.DealDiscountTotal, OrderPricing.AppliedDeals(o), stockWarnings is { Count: > 0 } ? stockWarnings : null);
+            o.CustomerId, o.CouponCode, o.DealDiscountTotal, OrderPricing.AppliedDeals(o), stockWarnings is { Count: > 0 } ? stockWarnings : null,
+            o.OfflineNumber, o.NeedsReview, o.ReviewNote);
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

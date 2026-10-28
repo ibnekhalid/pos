@@ -55,10 +55,11 @@ public record OrderDto(
     IReadOnlyList<OrderLineDto> Lines, IReadOnlyList<PaymentDto> Payments, IReadOnlyList<RefundDto> Refunds,
     DateTimeOffset CreatedAt, string? CreatedByName, string? VoidReason, bool SessionOpen,
     Guid? CustomerId = null, string? CouponCode = null, decimal DealDiscount = 0, IReadOnlyList<AppliedDealDto>? Deals = null,
-    IReadOnlyList<string>? StockWarnings = null);
+    IReadOnlyList<string>? StockWarnings = null, string? OfflineNumber = null, bool NeedsReview = false, string? ReviewNote = null);
 
 public record OrderSummaryDto(Guid Id, string OrderNumber, OrderType Type, OrderStatus Status, PaymentStatus PaymentStatus,
-    string? TableLabel, string? CustomerName, decimal Total, decimal Balance, int ItemCount, DateTimeOffset CreatedAt);
+    string? TableLabel, string? CustomerName, decimal Total, decimal Balance, int ItemCount, DateTimeOffset CreatedAt,
+    string? OfflineNumber = null, bool NeedsReview = false);
 
 /// <param name="Amount">Applied to the bill. For cash, Tendered is what the customer handed over (change = Tendered − Amount).</param>
 /// <param name="RegisterId">Null = the branch's default register.</param>
@@ -66,3 +67,19 @@ public record TakePaymentRequest(Guid ClientRequestId, Guid PaymentMethodId, dec
 
 /// <param name="RegisterId">The drawer the money leaves (this counter PC's register); null = the branch's default.</param>
 public record RefundRequest(Guid ClientRequestId, decimal Amount, string Reason, Approval? Approval = null, Guid? RegisterId = null);
+
+/// <summary>A payment taken with an offline order (its own ClientRequestId, so a retried sync books it once).</summary>
+public record OfflinePaymentRequest(Guid ClientRequestId, Guid PaymentMethodId, decimal Amount, decimal? Tendered, string? Reference);
+
+/// <summary>
+/// An order taken on a counter PC while the API couldn't be reached, sent when it is back. The server prices it
+/// again; the kitchen already cooked it from the paper ticket, so its tickets are booked as served.
+/// </summary>
+/// <param name="OfflineNumber">The provisional number printed on the paper tickets.</param>
+/// <param name="TakenByUserId">Who took it (the PC may be signed in as someone else by the time it syncs).</param>
+/// <param name="BusinessSessionId">The business day it was taken in.</param>
+/// <param name="EstimatedTotal">What the PC showed and charged; a different server total flags the order for review.</param>
+public record OfflineOrderRequest(CreateOrderRequest Order, string OfflineNumber, DateTimeOffset TakenAt, Guid TakenByUserId, Guid BusinessSessionId,
+    decimal EstimatedTotal, IReadOnlyList<OfflinePaymentRequest> Payments, Guid? RegisterId);
+
+public record OfflineOrderResult(Guid OrderId, string OrderNumber, bool NeedsReview, string? ReviewNote);

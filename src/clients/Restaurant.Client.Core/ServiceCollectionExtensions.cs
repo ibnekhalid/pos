@@ -23,6 +23,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Localizer>();
         services.AddSingleton<DeviceRegistration>();
         services.AddSingleton<LiveUpdates>();
+        services.AddSingleton<Offline.OfflineStore>();
+        services.AddSingleton<Offline.OfflineSync>();
+        services.AddSingleton<Offline.OfflinePin>();
         services.AddSingleton<ClientStartup>();
         return services;
     }

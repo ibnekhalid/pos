@@ -17,7 +17,7 @@ namespace Restaurant.Api.Controllers;
 [ApiController]
 [Route("api")]
 [Authorize]
-public class OrdersController(OrderService orders, PaymentService payments, ReceiptService receipts, ApprovalService approvals) : ControllerBase
+public class OrdersController(OrderService orders, PaymentService payments, ReceiptService receipts, ApprovalService approvals, OfflineSyncService offline) : ControllerBase
 {
     private const string SeeOrders = Permissions.Orders.Create;
 
@@ -36,6 +36,19 @@ public class OrdersController(OrderService orders, PaymentService payments, Rece
     [HttpPost("orders")]
     [RequirePermission(Permissions.Orders.Create)]
     public Task<OrderDto> Create(CreateOrderRequest request, CancellationToken ct) => orders.CreateAsync(request, ct);
+
+    /// <summary>
+    /// An order a counter PC took offline (with its payments). Safe to send again: what was already booked is
+    /// skipped. 409 when no business day is open; the PC keeps it and tries later.
+    /// </summary>
+    [HttpPost("orders/offline")]
+    [RequirePermission(Permissions.Orders.Create)]
+    public Task<OfflineOrderResult> SyncOffline(OfflineOrderRequest request, CancellationToken ct) => offline.SyncAsync(request, ct);
+
+    /// <summary>A manager has checked an order flagged when it synced.</summary>
+    [HttpPost("orders/{id:guid}/reviewed")]
+    [RequirePermission(Permissions.Orders.Void)]
+    public Task<OrderDto> Reviewed(Guid id, CancellationToken ct) => offline.MarkReviewedAsync(id, ct);
 
     [HttpPost("orders/{id:guid}/lines")]
     [RequirePermission(Permissions.Orders.Edit)]

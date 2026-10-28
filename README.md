@@ -88,8 +88,12 @@ dotnet ef migrations add <Name> --project src/api/Restaurant.Infrastructure
 
 ## Online and offline
 
-Release 1 is **online-only** for taking orders (PLAN.md, decision D8). The web app's service worker
-caches the app itself so it opens fast. It does not queue orders offline.
+The **desktop app on a registered counter PC** keeps taking orders when the connection drops: it numbers
+them itself, prints the tickets, and sends them when the connection is back. Anything that doesn't match
+is flagged for a manager to check. See [docs/OFFLINE.md](docs/OFFLINE.md).
+
+The web app is online-only. Its service worker caches the app itself so it opens fast, but it doesn't
+queue orders.
 
 ## Deployment
 

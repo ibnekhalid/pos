@@ -1,5 +1,6 @@
 @page "/app/sessions/close"
 @inherits PageBase
+@inject Restaurant.Client.Core.Offline.OfflineSync OfflineSync
 @using Restaurant.Contracts.Sessions
 
 <PageTitle>@T("day.close")</PageTitle>
@@ -93,7 +94,12 @@ else
 
         <SessionSummary Summary="_preview.Summary" />
         <TextField Label="@T("day.notes")" @bind-Value="_notes" Multiline MaxLength="500" />
-        <RpButton Variant="danger" Icon="lock-closed-outline" Loading="Busy" OnClick="CloseAsync">@T("day.confirmClose")</RpButton>
+        @if (OfflineSync.ForCurrentBranch().Count() is > 0 and var waiting)
+        {
+            @* The server can't see them yet: closing now would book them to the next day. *@
+            <Notice Kind="danger" Class="rp-mb">@T("offline.closeBlocked", ("n", waiting.ToString())) <a class="rp-link" href="app/pos/offline">@T("offline.view")</a></Notice>
+        }
+        <RpButton Variant="danger" Icon="lock-closed-outline" Loading="Busy" OnClick="CloseAsync" Disabled="OfflineSync.ForCurrentBranch().Any()">@T("day.confirmClose")</RpButton>
     }
 }
 

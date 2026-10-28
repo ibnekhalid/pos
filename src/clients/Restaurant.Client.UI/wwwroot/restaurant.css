@@ -450,3 +450,8 @@ textarea.rp-input { resize: vertical; }
 .rp-legend .reserved { background: var(--rp-primary-soft); border-color: var(--rp-primary); }
 .rp-progress { height: 6px; border-radius: 3px; background: var(--rp-border); overflow: hidden; min-width: 60px; }
 .rp-progress span { display: block; height: 100%; background: var(--rp-success); }
+
+/* ---------- Phase 6: offline orders */
+.rp-offline-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600;
+    background: var(--rp-primary-soft); color: var(--rp-primary); text-decoration: none; margin-inline-end: 8px; }
+.rp-offline-chip.down { background: #FEF3C7; color: var(--rp-warning); }

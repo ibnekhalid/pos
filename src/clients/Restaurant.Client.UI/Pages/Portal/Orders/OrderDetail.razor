@@ -24,6 +24,14 @@ else
     @if (Error is not null && _dialog is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
     @if (!o.SessionOpen) { <Notice Class="rp-mb">@T("orders.dayClosed")</Notice> }
     @if (o.VoidReason is not null) { <Notice Kind="warning" Class="rp-mb">@T("orders.reason"): @o.VoidReason</Notice> }
+    @if (o.OfflineNumber is not null) { <Notice Class="rp-mb">@T("offline.takenOffline", ("number", o.OfflineNumber))</Notice> }
+    @if (o.NeedsReview)
+    {
+        <Notice Kind="warning" Class="rp-mb">
+            <span class="rp-strong">@T("offline.checkThis")</span> @o.ReviewNote
+            @if (User.Can(Permissions.Orders.Void)) { <RpButton Small Variant="secondary" Class="rp-mt-sm" Loading="Busy" OnClick="ReviewedAsync">@T("offline.markChecked")</RpButton> }
+        </Notice>
+    }
     @if (o.CustomerName is not null || o.CustomerPhone is not null)
     {
         <p class="rp-muted rp-mb"><Icon Name="person-circle-outline" Size="16" /> @o.CustomerName <span dir="ltr">@o.CustomerPhone</span>
@@ -239,6 +247,8 @@ else
         var printError = await Printer.PrintKitchenRoundAsync(OrderId);
         if (printError is not null) Error = printError;
     }, T("orders.sentToKitchen"));
+
+    private Task ReviewedAsync() => RunAsync(async () => _order = await Api.MarkOrderReviewedAsync(OrderId));
 
     private Task ServedAsync() => RunAsync(async () => _order = await Api.MarkServedAsync(OrderId));
 

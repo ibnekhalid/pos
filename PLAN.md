@@ -34,7 +34,7 @@ are business choices you may want to change. Each is cheap to change now and exp
 | D5 | **`BusinessSession` (the branch's business day) and `RegisterSession` (one cash drawer's shift) are separate entities (review).** By default each branch has one register, and *Start day* opens both in one step, so a small restaurant sees a single flow. | The brief allows this split. It keeps "what was sold today" apart from "how much cash is in this drawer", and it supports two tills or shift handovers later without a schema change. |
 | D6 | **Stock is deducted when an order is sent to the kitchen**, once per order line, enforced by a unique key. Cancelling after that point writes a reversal, also with a unique key. | Required by the brief. Payment retries, reprints and status changes never touch stock. |
 | D7 | **Orders that are open or unpaid, and open kitchen tickets, block closing the day (review).** The close screen lists each blocker with its fix: settle, void (with reason and permission) or complete. Nothing is carried over or discarded silently. | This is the safest default. "Carry an unpaid order over to the next day" could be added as an audited action later. |
-| D8 | **Online-only POS in release 1.** The desktop app reconnects and safely retries (every write carries an idempotency key), and it caches the menu for display, but it does **not** take orders offline. Offline order capture is an optional Phase 6 with its own design. | The brief says not to claim offline without durable sync and conflict handling. |
+| D8 | **Online-only POS in release 1.** The desktop app reconnects and safely retries (every write carries an idempotency key), and it caches the menu for display, but it does **not** take orders offline. Offline order capture is an optional Phase 6 with its own design. *Phase 6: built for registered desktop counter PCs; see docs/OFFLINE.md.* | The brief says not to claim offline without durable sync and conflict handling. |
 | D9 | **Desktop receipt printing sends raw ESC/POS bytes to a Windows-installed printer** (winspool `WritePrinter`, RAW datatype). PDF and browser printing are the fallback. The web app prints an HTML receipt sized for 80/58 mm. | Raw ESC/POS is fast and silent, supports auto-cut and the cash-drawer kick, and works with the generic drivers that cheap Pakistani thermal printers ship with. |
 | D10 | **Integration tests use real PostgreSQL** (Testcontainers). Fast unit tests cover the pure domain rules. | The brief requires it. Tailor Book's SQLite tests can't prove locking, uniqueness or concurrency. |
 | D11 | Money is `numeric(18,2)` in PKR, with no floats anywhere. Timestamps are stored as UTC `timestamptz`, and business dates as `date` in the branch's timezone (default `Asia/Karachi`). | Required by the brief. |
@@ -908,13 +908,43 @@ Phase 5 notes:
 - Not built: deposits for bookings, and SMS/WhatsApp reminders (needs the Phase 6 messaging).
 
 ### Phase 6 — Optional, after release
-- [ ] Offline order capture on the desktop (local SQLite outbox, offline order-number range per register, conflict rules)
+- [x] Offline order capture on the desktop (outbox, per-PC provisional numbers, conflict rules). See
+  docs/OFFLINE.md for how staff use it.
 - [ ] Android tablet build for waiters, a customer-facing display
 - [ ] FBR / PRA POS invoice integration (fiscal invoice number field reserved on `Receipt`)
 - [ ] Foodpanda or website orders as an order source, delivery rider assignment
 - [ ] WhatsApp receipts (Tailor Book has a `WhatsAppMessage` model), loyalty
 
 ---
+
+Phase 6 notes: offline orders
+- The outbox is a JSON file in the desktop app's own store, not SQLite. Every write is flushed to disk
+  before it replaces the old file, and an unreadable file is set aside rather than emptied. The PLAN's
+  SQLite was meant for durability, which this gives without a new dependency.
+- Paper numbers are per PC: two characters from the device id plus a counter that never resets (`K7-14`),
+  not a range of server order numbers. The server gives a normal number when the order syncs and keeps
+  the paper one on the order (`OfflineNumber`). Ranges would have needed allocation while online and gone
+  wrong when a PC was offline for longer than its range.
+- `POST /api/orders/offline` replays the order through `OrderService.CreateServedAsync` (CreateAsync,
+  but the Block stock policy only warns), then marks the tickets served and books the payments through
+  `PaymentService`. Every step is idempotent (the order's and each payment's ClientRequestId), so a sync
+  cut off half way is simply sent again; it is not one transaction.
+- Mismatches never refuse an order (the food was served and the money taken). It is booked and flagged
+  `NeedsReview` with a note: the price differs from the PC's estimate by more than Rs 1, the table was
+  taken, or the day was closed. A manager (orders.void) clears the flag after correcting the order with the
+  usual records. Only a missing open day, a deleted menu item or a bad clock is refused; the order then
+  waits on the PC with the reason.
+- The PC estimates the bill with a copy of `OrderPricer` (`OfflineEstimate`, no deals or discounts). A unit
+  test checks the two agree on taxes (inclusive, exclusive, cash/non-cash), service charge and rounding.
+- If the connection drops while an order is being sent, the order goes to the outbox with the same
+  ClientRequestId. If the server did receive it, the sync finds that order rather than making a second one.
+  Its kitchen ticket may then show on the kitchen screen as well as on paper.
+- The desktop app keeps the last `/api/me`, the last register's printers and a menu snapshot per branch, so
+  a restart offline still opens the POS (for a remembered password sign-in). Auto-lock pauses offline. A
+  salted PBKDF2 hash of the PIN (DPAPI-protected) lets the person signed in unlock offline.
+- Not done: taking orders offline in the web app; a deal, discount, split payment or adding to an open
+  order while offline; the kitchen screen during an outage (the kitchen works from the printed tickets);
+  an offline PIN sign-in by someone other than the person signed in.
 
 ## 18. Open questions (don't block Phase 1)
 

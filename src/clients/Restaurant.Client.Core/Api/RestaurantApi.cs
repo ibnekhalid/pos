@@ -220,6 +220,9 @@ public class RestaurantApi(ApiClient api, SessionStore session)
     public Task<ProductsReportDto> GetProductsReportAsync(ReportFilter filter) => api.GetAsync<ProductsReportDto>("api/reports/products" + Query(filter));
     public Task<PaymentsReportDto> GetPaymentsReportAsync(ReportFilter filter) => api.GetAsync<PaymentsReportDto>("api/reports/payments" + Query(filter));
     public Task<InventoryReportDto> GetInventoryReportAsync(ReportFilter filter) => api.GetAsync<InventoryReportDto>("api/reports/inventory" + Query(filter));
+    public Task<OfflineOrderResult> SyncOfflineOrderAsync(OfflineOrderRequest request) => api.PostAsync<OfflineOrderResult>("api/orders/offline", request);
+    public Task<OrderDto> MarkOrderReviewedAsync(Guid id) => api.PostAsync<OrderDto>($"api/orders/{id}/reviewed", new { });
+
     public Task<IReadOnlyList<LowStockDto>> GetLowStockAsync() => api.GetAsync<IReadOnlyList<LowStockDto>>("api/inventory/low-stock");
     public Task<MyShiftDto?> GetMyShiftAsync() => api.GetAsync<MyShiftDto?>("api/reports/my-shift");
     public Task<IReadOnlyList<ReportStaffDto>> GetReportStaffAsync() => api.GetAsync<IReadOnlyList<ReportStaffDto>>("api/reports/staff");

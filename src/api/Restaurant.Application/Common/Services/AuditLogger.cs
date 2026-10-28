@@ -27,6 +27,8 @@ public static class AuditActions
     public const string StaffPinSet = "staff.pin_set";
     public const string OwnershipTransferred = "ownership.transferred";
     public const string SupplierSaved = "supplier.saved";
+    public const string OrderSyncedOffline = "order.synced_offline";
+    public const string OrderReviewed = "order.reviewed";
     public const string PurchaseOrderSaved = "purchase_order.saved";
     public const string PurchaseOrderOrdered = "purchase_order.ordered";
     public const string PurchaseOrderCancelled = "purchase_order.cancelled";

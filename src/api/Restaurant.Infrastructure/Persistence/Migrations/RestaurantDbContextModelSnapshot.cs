@@ -1658,9 +1658,16 @@ namespace Restaurant.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
+
+                    b.Property<string>("OfflineNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("OrderNumber")
                         .IsRequired()
@@ -1677,6 +1684,10 @@ namespace Restaurant.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("RefundedTotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ReviewNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<int>("Rounding")
                         .HasColumnType("integer");
@@ -1715,6 +1726,9 @@ namespace Restaurant.Infrastructure.Persistence.Migrations
                     b.Property<string>("TableLabel")
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset?>("TakenOfflineAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("TaxBreakdownJson")
                         .IsRequired()
@@ -1766,6 +1780,9 @@ namespace Restaurant.Infrastructure.Persistence.Migrations
                     b.HasIndex("TableId");
 
                     b.HasIndex("BranchId", "BusinessSessionId");
+
+                    b.HasIndex("BranchId", "NeedsReview")
+                        .HasFilter("\"NeedsReview\"");
 
                     b.HasIndex("BranchId", "Status");
 

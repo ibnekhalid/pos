@@ -57,7 +57,13 @@ public class FileKeyValueStore : IKeyValueStore
         await _lock.WaitAsync();
         try
         {
-            await File.WriteAllBytesAsync(path + ".tmp", Encode(value));
+            // Flushed to the disk before the rename: a power cut leaves the old file or the new one, never half of one
+            // (the offline outbox lives here).
+            await using (var file = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await file.WriteAsync(Encode(value));
+                file.Flush(flushToDisk: true);
+            }
             File.Move(path + ".tmp", path, overwrite: true);
         }
         finally

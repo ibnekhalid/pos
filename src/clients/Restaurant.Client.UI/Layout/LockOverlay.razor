@@ -2,6 +2,8 @@
 @inject SessionStore Session
 @inject RestaurantApi Api
 @inject DeviceRegistration Device
+@inject Restaurant.Client.Core.Offline.OfflinePin OfflinePin
+@inject Restaurant.Client.Core.Offline.OfflineSync OfflineSync
 
 @* Covers the counter screen when it's locked (button or idle timeout). Any staff member with a PIN
    can continue — the session switches to them — or someone can sign in with a password. *@
@@ -12,7 +14,14 @@
             <h1 class="rp-mt-sm">@T("lock.title")</h1>
             <p class="rp-muted">@Brand.DisplayName</p>
         </div>
-        @if (Device.IsRegistered)
+        @if (Device.IsRegistered && (User.IsOffline || OfflineSync.Unreachable) && User.Me is { MembershipId: { } membershipId })
+        {
+            <Notice Kind="warning">@T("offline.lockText", ("name", User.Me.FullName))</Notice>
+            @if (_offlineError is not null) { <Notice Kind="danger" Class="rp-mt-sm">@_offlineError</Notice> }
+            <PinPad @ref="_pad" OnSubmit="pin => UnlockOfflineAsync(membershipId, pin)" />
+            <RpButton Variant="ghost" Small Block Class="rp-mt-sm" OnClick="RetryOnline">@T("offline.tryNow")</RpButton>
+        }
+        else if (Device.IsRegistered)
         {
             <PinSignIn OnSignedIn="UnlockedAsync" />
         }
@@ -29,4 +38,26 @@
     }
 
     private Task UsePasswordAsync() => Api.LogoutAsync();
+
+    private PinPad? _pad;
+    private string? _offlineError;
+
+    private async Task UnlockOfflineAsync(Guid membershipId, string pin)
+    {
+        if (await OfflinePin.VerifyAsync(membershipId, pin))
+        {
+            _offlineError = null;
+            Session.UnlockOffline();
+            return;
+        }
+        _offlineError = await OfflinePin.HasAsync(membershipId) ? T("offline.wrongPin") : T("offline.noOfflinePin");
+        _pad?.Clear();
+    }
+
+    /// <summary>Back online: the normal PIN screen (any staff member).</summary>
+    private void RetryOnline()
+    {
+        OfflineSync.Report(true);
+        _ = User.LoadAsync();
+    }
 }

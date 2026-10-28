@@ -572,7 +572,8 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
     /// never deducted twice. The branch's InsufficientStock policy decides what happens when there isn't
     /// enough: Allow books it (stock goes negative), Warn books it and returns warnings, Block refuses.
     /// </summary>
-    public async Task<IReadOnlyList<string>> DeductAsync(Order order, IReadOnlyList<OrderLine> lines, CancellationToken ct)
+    /// <param name="alreadyServed">An offline order: the food is gone, so the Block policy only warns.</param>
+    public async Task<IReadOnlyList<string>> DeductAsync(Order order, IReadOnlyList<OrderLine> lines, CancellationToken ct, bool alreadyServed = false)
     {
         if (lines.Count == 0) return [];
         var usage = await UsageAsync(lines, ct);
@@ -599,7 +600,7 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
                 if (have >= need.Quantity) continue;
                 var message = $"Not enough {need.Item.Name}: needs {UnitCatalog.Describe(need.Quantity, need.Item.BaseUnit)}, " +
                     $"{UnitCatalog.Describe(Math.Max(have, 0), need.Item.BaseUnit)} in stock.";
-                if (policy == InsufficientStockBehavior.Block) throw new ConflictException(message);
+                if (policy == InsufficientStockBehavior.Block && !alreadyServed) throw new ConflictException(message);
                 warnings.Add(message);
             }
         }

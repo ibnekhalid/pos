@@ -1,0 +1,88 @@
+@inherits RpComponent
+@* Payment for an order taken offline: one payment of the whole estimated bill (no split payments offline). *@
+<Dialog Open="Open" OpenChanged="v => OpenChanged.InvokeAsync(v)" Title="@T("offline.payTitle", ("number", Number ?? ""))">
+    <ChildContent>
+        <div class="rp-cart-total rp-mb"><span>@T("pay.due")</span><span>@Money(Total)</span></div>
+        <div class="rp-segmented block rp-mb">
+            @foreach (var method in Methods.Where(m => m.IsActive))
+            {
+                <button class="@(method.Id == _methodId ? "active" : "")" @onclick="() => Pick(method)">@method.Name</button>
+            }
+        </div>
+        @if (Selected?.IsCash == true)
+        {
+            <TextField Label="@T("pay.tendered")" @bind-Value="_tendered" InputMode="decimal" Dir="ltr" />
+            @if (Change is { } change)
+            {
+                <div class="rp-cart-total"><span>@T("pay.giveChange")</span><span>@Money(change)</span></div>
+            }
+        }
+        else if (Selected?.RequiresReference == true)
+        {
+            <TextField Label="@T("pay.reference")" @bind-Value="_reference" MaxLength="50" Dir="ltr" />
+        }
+        <p class="rp-hint">@T("offline.payHint")</p>
+        @if (_error is not null) { <Notice Kind="danger">@_error</Notice> }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => OpenChanged.InvokeAsync(false)">@T("common.cancel")</RpButton>
+        <RpButton Icon="print-outline" OnClick="ConfirmAsync">@T("offline.saveAndPrint")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public string? Number { get; set; }
+    /// <summary>The bill for cash (true) or another method: cash-only and non-cash-only tax rates can differ.</summary>
+    [Parameter] public Func<bool, decimal> TotalFor { get; set; } = _ => 0;
+    [Parameter] public IReadOnlyList<PaymentMethodDto> Methods { get; set; } = [];
+    [Parameter] public EventCallback<Restaurant.Contracts.Orders.OfflinePaymentRequest> OnConfirm { get; set; }
+
+    private Guid? _methodId;
+    private string? _tendered, _reference, _error;
+
+    private PaymentMethodDto? Selected => Methods.FirstOrDefault(m => m.Id == _methodId);
+
+    private decimal Total => TotalFor(Selected?.IsCash ?? true);
+
+    private decimal? Change => Format.ParseNumber(_tendered) is { } t && t >= Total ? t - Total : null;
+
+    protected override void OnParametersSet()
+    {
+        if (Open && _methodId is null) _methodId = Methods.FirstOrDefault(m => m.IsActive && m.IsCash)?.Id ?? Methods.FirstOrDefault(m => m.IsActive)?.Id;
+        if (!Open)
+        {
+            _methodId = null;
+            _tendered = _reference = _error = null;
+        }
+    }
+
+    private void Pick(PaymentMethodDto method)
+    {
+        _methodId = method.Id;
+        _error = null;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (Selected is not { } method) return;
+        decimal? tendered = null;
+        if (method.IsCash)
+        {
+            tendered = Format.ParseNumber(_tendered) ?? Total;
+            if (tendered < Total)
+            {
+                _error = T("offline.tooLittle");
+                return;
+            }
+        }
+        else if (method.RequiresReference && string.IsNullOrWhiteSpace(_reference))
+        {
+            _error = T("offline.needsReference");
+            return;
+        }
+        await OnConfirm.InvokeAsync(new Restaurant.Contracts.Orders.OfflinePaymentRequest(Guid.NewGuid(), method.Id, Total, tendered,
+            string.IsNullOrWhiteSpace(_reference) ? null : _reference.Trim()));
+    }
+}

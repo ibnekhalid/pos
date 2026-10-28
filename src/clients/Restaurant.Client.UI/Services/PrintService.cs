@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Restaurant.Client.Core;
 using Restaurant.Client.Core.Api;
 using Restaurant.Client.Core.Auth;
 using Restaurant.Client.Core.Platform;
@@ -13,7 +15,7 @@ namespace Restaurant.Client.UI.Services;
 /// name and cash-drawer setting (PLAN.md section 10). The register is this counter PC's own (set on the
 /// device in Settings → Counter devices), else the branch's default.
 /// </summary>
-public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionStore session, DeviceRegistration device)
+public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionStore session, DeviceRegistration device, IKeyValueStore store)
 {
     public const string ElementId = "rp-print-area";
 
@@ -68,6 +70,20 @@ public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionSto
         }
     }
 
+    /// <summary>A document built on this PC (an order taken offline): printed, but not logged with the API.</summary>
+    public async Task<string?> PrintLocalAsync(ReceiptDocumentDto document, bool openDrawer = false)
+    {
+        try
+        {
+            await PrintDocumentAsync(document, openDrawer);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
     private async Task PrintDocumentAsync(ReceiptDocumentDto document, bool openDrawer)
     {
         Document = document;
@@ -112,17 +128,34 @@ public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionSto
         if (branchId is null) return null;
         if (_register is { } cached && cached.BranchId == branchId && DateTimeOffset.UtcNow - cached.At < RegisterCacheTime) return cached.Register;
 
-        Guid? linkedId = null;
-        if (device.Info?.BranchId == branchId && await device.GetTokenAsync() is { Length: > 0 } token)
+        try
         {
-            linkedId = (await api.GetCurrentDeviceAsync(token))?.RegisterId;
+            Guid? linkedId = null;
+            if (device.Info?.BranchId == branchId && await device.GetTokenAsync() is { Length: > 0 } token)
+            {
+                linkedId = (await api.GetCurrentDeviceAsync(token))?.RegisterId;
+            }
+            var registers = await api.GetRegistersAsync(branchId.Value);
+            var linked = registers.FirstOrDefault(r => r.Id == linkedId && r.IsActive);
+            var register = linked ?? registers.FirstOrDefault(r => r.IsDefault);
+            _register = (branchId.Value, register, linked?.Id, DateTimeOffset.UtcNow);
+            await store.SetAsync(StoreKey(branchId.Value), JsonSerializer.Serialize(new SavedRegister(register, linked?.Id), Json.Options));
+            return register;
         }
-        var registers = await api.GetRegistersAsync(branchId.Value);
-        var linked = registers.FirstOrDefault(r => r.Id == linkedId && r.IsActive);
-        var register = linked ?? registers.FirstOrDefault(r => r.IsDefault);
-        _register = (branchId.Value, register, linked?.Id, DateTimeOffset.UtcNow);
-        return register;
+        catch (NetworkException)
+        {
+            // Offline: print with what this PC last knew (kept on disk, so it survives a restart).
+            if (_register is { } stale && stale.BranchId == branchId) return stale.Register;
+            var saved = await store.GetAsync(StoreKey(branchId.Value)) is { Length: > 0 } json ? JsonSerializer.Deserialize<SavedRegister>(json, Json.Options) : null;
+            if (saved is null) throw;
+            _register = (branchId.Value, saved.Register, saved.Linked, DateTimeOffset.MinValue); // tried again on the next print
+            return saved.Register;
+        }
     }
+
+    private sealed record SavedRegister(RegisterDto? Register, Guid? Linked);
+
+    private static string StoreKey(Guid branchId) => $"rp.print.register.{branchId:N}";
 
     /// <summary>Register settings changed: read them again next time.</summary>
     public void Forget() => _register = null;

@@ -10,6 +10,7 @@
 @inject IWindowService Window
 @inject DeviceRegistration Device
 @inject StockAlerts Alerts
+@inject Restaurant.Client.Core.Offline.OfflineSync OfflineSync
 
 @* Signed-in shell: navigation (only what the user may use), branch switcher, user menu, and on the
    desktop app the idle auto-lock. Themed by the restaurant's branding. *@
@@ -63,6 +64,13 @@
                     <span class="rp-topbar-branch"><Icon Name="storefront-outline" /> @User.CurrentBranch.Name</span>
                 }
                 <div class="rp-grow"></div>
+                @if (Device.Supported && (User.IsOffline || OfflineSync.Unreachable || OfflineSync.ForCurrentBranch().Any()))
+                {
+                    <a class="rp-offline-chip @(User.IsOffline || OfflineSync.Unreachable ? "down" : "")" href="app/pos/offline" title="@L["offline.chipHint"]">
+                        <Icon Name="@(User.IsOffline || OfflineSync.Unreachable ? "cloud-offline-outline" : "cloud-upload-outline")" Size="16" />
+                        @(User.IsOffline || OfflineSync.Unreachable ? L["offline.chip"] : L["offline.chipWaiting"]) @if (OfflineSync.ForCurrentBranch().Count() is > 0 and var n) { <span class="rp-nav-count">@n</span> }
+                    </a>
+                }
                 @if (Device.Supported && Device.IsRegistered)
                 {
                     <RpButton Variant="ghost" Small Icon="lock-closed-outline" OnClick="Session.Lock" Title="@L["lock.lockNow"]">@L["lock.lock"]</RpButton>
@@ -136,7 +144,9 @@
         L.Changed += Refresh;
         Device.Changed += Refresh;
         Alerts.Changed += Refresh;
+        OfflineSync.Changed += Refresh;
         Nav.LocationChanged += OnLocationChanged;
+        if (Device.Supported) _ = OfflineSync.StartAsync();
 
         if (!EnsureSignedIn()) return;
         await LoadUserAsync();
@@ -207,7 +217,8 @@
     private void CheckIdle()
     {
         var minutes = Device.Prefs.AutoLockMinutes;
-        if (minutes > 0 && Device.IsRegistered && !Session.IsLocked && Session.IsSignedIn
+        // Not while offline: unlocking needs the API (only the person signed in can unlock offline, with their PIN).
+        if (minutes > 0 && Device.IsRegistered && !Session.IsLocked && Session.IsSignedIn && !User.IsOffline && !OfflineSync.Unreachable
             && DateTime.UtcNow - _lastActivity > TimeSpan.FromMinutes(minutes))
         {
             InvokeAsync(Session.Lock);
@@ -253,6 +264,7 @@
         L.Changed -= Refresh;
         Device.Changed -= Refresh;
         Alerts.Changed -= Refresh;
+        OfflineSync.Changed -= Refresh;
         Nav.LocationChanged -= OnLocationChanged;
     }
 }
