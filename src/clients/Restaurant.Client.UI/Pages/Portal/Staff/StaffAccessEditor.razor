@@ -1,0 +1,46 @@
+@inherits RpComponent
+@* Roles and branch access for one staff member (used by add and edit). *@
+<div class="rp-label">@T("staff.roles")</div>
+<div class="rp-choice-grid">
+    @foreach (var role in Roles)
+    {
+        <CheckBox Label="@role.Name" Hint="@role.Description" Value="RoleIds.Contains(role.Id)" ValueChanged="on => ToggleRole(role.Id, on)" Disabled="Disabled" />
+    }
+</div>
+<div class="rp-label rp-mt">@T("staff.branches")</div>
+<CheckBox Label="@T("staff.allBranches")" Hint="@T("staff.allBranchesHint")" Value="AllBranches" ValueChanged="AllBranchesChanged" Disabled="Disabled" />
+@if (!AllBranches)
+{
+    <div class="rp-choice-grid">
+        @foreach (var branch in Branches)
+        {
+            <CheckBox Label="@branch.Name" Value="BranchIds.Contains(branch.Id)" ValueChanged="on => ToggleBranch(branch.Id, on)" Disabled="Disabled" />
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<RoleDto> Roles { get; set; } = [];
+    [Parameter] public IReadOnlyList<BranchDto> Branches { get; set; } = [];
+    [Parameter] public HashSet<Guid> RoleIds { get; set; } = [];
+    [Parameter] public EventCallback<HashSet<Guid>> RoleIdsChanged { get; set; }
+    [Parameter] public bool AllBranches { get; set; }
+    [Parameter] public EventCallback<bool> AllBranchesChanged { get; set; }
+    [Parameter] public HashSet<Guid> BranchIds { get; set; } = [];
+    [Parameter] public EventCallback<HashSet<Guid>> BranchIdsChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private Task ToggleRole(Guid id, bool on)
+    {
+        var set = new HashSet<Guid>(RoleIds);
+        if (on) set.Add(id); else set.Remove(id);
+        return RoleIdsChanged.InvokeAsync(set);
+    }
+
+    private Task ToggleBranch(Guid id, bool on)
+    {
+        var set = new HashSet<Guid>(BranchIds);
+        if (on) set.Add(id); else set.Remove(id);
+        return BranchIdsChanged.InvokeAsync(set);
+    }
+}

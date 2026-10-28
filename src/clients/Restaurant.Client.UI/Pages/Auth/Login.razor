@@ -1,0 +1,83 @@
+@page "/app/login"
+@layout AuthLayout
+@inherits PageBase
+@inject SessionStore Session
+@inject DeviceRegistration Device
+
+<PageTitle>@T("auth.signIn")</PageTitle>
+
+@if (Device.Supported && Device.IsRegistered && !_usePassword)
+{
+    <h1>@T("auth.pinTitle")</h1>
+    <PinSignIn OnSignedIn="GoOnAsync" />
+    <RpButton Variant="ghost" Block Class="rp-mt" OnClick="() => _usePassword = true">@T("auth.usePasswordInstead")</RpButton>
+}
+else
+{
+    <h1>@T("auth.signIn")</h1>
+    <p class="rp-muted">@T("auth.signInSubtitle")</p>
+
+    @if (Error is not null)
+    {
+        <Notice Kind="danger" Class="rp-mb">@Error</Notice>
+    }
+
+    <TextField Label="@T("auth.login")" @bind-Value="_login" Icon="person-outline" AutoComplete="username" Dir="ltr"
+               Placeholder="@T("auth.loginPlaceholder")" OnEnter="SignInAsync" />
+    <TextField Label="@T("auth.password")" @bind-Value="_password" Icon="lock-closed-outline" Type="@(_showPassword ? "text" : "password")"
+               AutoComplete="current-password" OnEnter="SignInAsync">
+        <Trailing>
+            <button type="button" class="rp-icon-btn" @onclick="() => _showPassword = !_showPassword" aria-label="@T("auth.showPassword")">
+                <Icon Name="@(_showPassword ? "eye-off-outline" : "eye-outline")" />
+            </button>
+        </Trailing>
+    </TextField>
+    <CheckBox Label="@T("auth.rememberMe")" Hint="@T("auth.rememberMeHint")" @bind-Value="_remember" />
+
+    <RpButton Block Class="rp-mt" Loading="Busy" OnClick="SignInAsync">@T("auth.signIn")</RpButton>
+
+    <div class="rp-auth-links">
+        <a href="app/forgot-password">@T("auth.forgotPassword")</a>
+        <a href="app/accept-invite">@T("auth.haveInvite")</a>
+    </div>
+    <div class="rp-auth-alt">
+        @T("auth.newRestaurant") <a href="app/register">@T("auth.createAccount")</a>
+    </div>
+    @if (Device.Supported && Device.IsRegistered)
+    {
+        <RpButton Variant="ghost" Block OnClick="() => _usePassword = false">@T("auth.usePin")</RpButton>
+    }
+}
+
+@code {
+    private string? _login;
+    private string? _password;
+    private bool _remember = true;
+    private bool _showPassword;
+    private bool _usePassword;
+
+    protected override Task LoadAsync()
+    {
+        if (Session.IsSignedIn) Nav.NavigateTo("app", replace: true);
+        return Task.CompletedTask;
+    }
+
+    private async Task SignInAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_login) || string.IsNullOrWhiteSpace(_password))
+        {
+            Error = T("auth.enterLoginAndPassword");
+            return;
+        }
+        if (await RunAsync(() => Api.LoginAsync(new LoginRequest(_login.Trim(), _password, _remember))))
+        {
+            await GoOnAsync();
+        }
+    }
+
+    private Task GoOnAsync()
+    {
+        Nav.NavigateTo(Session.Current?.RequiresTenantSelection == true ? "app/select-restaurant" : "app");
+        return Task.CompletedTask;
+    }
+}

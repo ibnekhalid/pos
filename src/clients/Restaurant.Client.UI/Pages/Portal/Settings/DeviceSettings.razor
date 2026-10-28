@@ -1,0 +1,123 @@
+@page "/app/settings/devices"
+@inherits PageBase
+@inject DeviceRegistration Device
+@inject IPlatformInfo Platform
+@inject SessionStore Session
+
+<PageTitle>@T("devices.title")</PageTitle>
+<PageHeader Title="@T("devices.title")" Subtitle="@T("devices.summary")" BackHref="app/settings" />
+
+@if (!User.Can(Permissions.Tenant.ManageSettings))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+    <section class="rp-panel">
+        <h2>@T("devices.thisComputer")</h2>
+        @if (!Device.Supported)
+        {
+            <p class="rp-muted">@T("devices.webOnly")</p>
+        }
+        else if (Device.IsRegistered && Device.Info!.TenantId == Session.Current?.TenantId)
+        {
+            <p>@T("devices.registeredAs", ("name", Device.Info.Name), ("branch", BranchName(Device.Info.BranchId)))</p>
+            <p class="rp-hint">@T("devices.registeredHint")</p>
+            <RpButton Variant="secondary" Icon="close" OnClick="ForgetAsync">@T("devices.forget")</RpButton>
+        }
+        else
+        {
+            <p class="rp-muted">@T("devices.registerHint")</p>
+            <div class="rp-grid-2">
+                <TextField Label="@T("devices.name")" @bind-Value="_name" Error="@FieldError("Name")" />
+                <SelectField Label="@T("taxes.branch")" @bind-Value="_branchId" Options="_branches.Select(b => (b.Id.ToString(), b.Name))" />
+            </div>
+            <RpButton Icon="desktop-outline" Loading="Busy" OnClick="RegisterAsync">@T("devices.register")</RpButton>
+        }
+    </section>
+
+    <section class="rp-panel">
+        <h2>@T("devices.all")</h2>
+        @if (_devices.Count == 0)
+        {
+            <p class="rp-muted">@T("devices.none")</p>
+        }
+        else
+        {
+            <table class="rp-table">
+                <thead><tr><th>@T("devices.name")</th><th>@T("taxes.branch")</th><th>@T("devices.lastUsed")</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var device in _devices)
+                    {
+                        <tr class="@(device.IsRevoked ? "rp-dim" : "")">
+                            <td>
+                                @device.Name
+                                @if (device.Id == Device.Info?.DeviceId) { <Badge Kind="brand">@T("devices.thisOne")</Badge> }
+                                @if (device.IsRevoked) { <Badge Kind="danger">@T("devices.revoked")</Badge> }
+                            </td>
+                            <td>@BranchName(device.BranchId)</td>
+                            <td>@(device.LastSeenAt is null ? "—" : Format.DateTime(device.LastSeenAt))</td>
+                            <td class="rp-right">
+                                @if (!device.IsRevoked)
+                                {
+                                    <RpButton Small Variant="ghost" OnClick="() => _revoking = device">@T("devices.revoke")</RpButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+}
+
+<ConfirmDialog Open="_revoking is not null" OpenChanged="open => { if (!open) _revoking = null; }" Title="@T("devices.revokeTitle")"
+               Message="@T("devices.revokeText", ("name", _revoking?.Name ?? ""))" ConfirmText="@T("devices.revoke")" Destructive OnConfirm="RevokeAsync" />
+
+@code {
+    private IReadOnlyList<DeviceDto> _devices = [];
+    private IReadOnlyList<BranchDto> _branches = [];
+    private DeviceDto? _revoking;
+    private string? _name, _branchId;
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Tenant.ManageSettings)) return;
+        _devices = await Api.GetDevicesAsync();
+        _branches = await Api.GetBranchesAsync();
+        _name ??= Platform.DeviceName;
+        _branchId ??= (Session.Current?.BranchId ?? _branches.FirstOrDefault()?.Id)?.ToString();
+    }
+
+    private string BranchName(Guid id) => _branches.FirstOrDefault(b => b.Id == id)?.Name ?? "—";
+
+    private Task RegisterAsync() => RunAsync(async () =>
+    {
+        var branchId = Guid.Parse(_branchId!);
+        var result = await Api.RegisterDeviceAsync(new RegisterDeviceRequest(branchId, null, _name ?? ""));
+        await Device.SaveAsync(result.DeviceToken, new DeviceInfo(result.Device.Id, result.Device.Name, branchId, Session.Current!.TenantId!.Value));
+        _devices = await Api.GetDevicesAsync();
+    }, T("devices.registered"));
+
+    private async Task ForgetAsync()
+    {
+        await Device.ForgetAsync();
+        Success = T("devices.forgotten");
+    }
+
+    private Task RevokeAsync() => RunAsync(async () =>
+    {
+        var device = _revoking!;
+        _revoking = null;
+        await Api.RevokeDeviceAsync(device.Id);
+        if (device.Id == Device.Info?.DeviceId) await Device.ForgetAsync();
+        _devices = await Api.GetDevicesAsync();
+    }, T("devices.revokedDone"));
+}

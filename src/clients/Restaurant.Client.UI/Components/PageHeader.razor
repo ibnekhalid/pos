@@ -1,0 +1,24 @@
+<div class="rp-page-head">
+    @if (BackHref is not null)
+    {
+        <a class="rp-icon-btn rp-back" href="@BackHref" aria-label="Back"><Icon Name="chevron-back" Size="22" /></a>
+    }
+    <div class="rp-grow">
+        <h1>@Title</h1>
+        @if (Subtitle is not null)
+        {
+            <p class="rp-muted">@Subtitle</p>
+        }
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="rp-row">@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string? BackHref { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

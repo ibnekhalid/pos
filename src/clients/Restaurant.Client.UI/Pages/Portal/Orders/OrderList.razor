@@ -1,0 +1,87 @@
+@page "/app/orders"
+@inherits PageBase
+@using Restaurant.Contracts.Orders
+@implements IAsyncDisposable
+@inject LiveUpdates Live
+
+<PageTitle>@T("nav.orders")</PageTitle>
+<PageHeader Title="@T("nav.orders")">
+    <Actions>
+        <div class="rp-segmented">
+            <button class="@(_scope == "open" ? "active" : "")" @onclick="@(() => SetScopeAsync("open"))">@T("orders.open")</button>
+            <button class="@(_scope == "today" ? "active" : "")" @onclick="@(() => SetScopeAsync("today"))">@T("orders.today")</button>
+        </div>
+        @if (User.Can(Permissions.Orders.Create)) { <a class="rp-btn" href="app/pos"><Icon Name="add" /> @T("pos.newOrder")</a> }
+    </Actions>
+</PageHeader>
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (_orders.Count == 0)
+    {
+        <EmptyState Icon="receipt-outline" Title="@T(_scope == "open" ? "orders.noneOpen" : "orders.noneToday")" />
+    }
+    else
+    {
+        <table class="rp-table rp-panel">
+            <thead><tr><th>@T("orders.number")</th><th>@T("orders.type")</th><th>@T("orders.status")</th><th class="rp-right">@T("receipt.total")</th><th class="rp-right">@T("pay.due")</th><th>@T("orders.time")</th></tr></thead>
+            <tbody>
+                @foreach (var order in _orders)
+                {
+                    <tr class="rp-clickable" @onclick="@(() => Nav.NavigateTo($"app/orders/{order.Id}"))">
+                        <td class="rp-strong">@order.OrderNumber</td>
+                        <td>@T($"orderType.{order.Type}")@(order.TableLabel is null ? "" : $" · {order.TableLabel}") <span class="rp-hint">@order.CustomerName</span></td>
+                        <td><OrderBadges Status="order.Status" Payment="order.PaymentStatus" /></td>
+                        <td class="rp-right">@Money(order.Total)</td>
+                        <td class="rp-right">@(order.Balance > 0 ? Money(order.Balance) : "—")</td>
+                        <td class="rp-nowrap">@order.CreatedAt.ToLocalTime().ToString("h:mm tt")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private IReadOnlyList<OrderSummaryDto> _orders = [];
+    private string _scope = "open";
+    private Timer? _refresh;
+
+    protected override async Task LoadAsync()
+    {
+        _orders = await Api.GetOrdersAsync(_scope);
+        if (_refresh is null)
+        {
+            Live.OrdersChanged += OnChanged;
+            Live.Reconnected += OnChanged;
+            _ = Live.EnsureConnectedAsync();
+            _refresh = new Timer(_ => OnChanged(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+    }
+
+    private async Task SetScopeAsync(string scope)
+    {
+        _scope = scope;
+        await ReloadAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(async () =>
+    {
+        await ReloadAsync();
+        StateHasChanged();
+    });
+
+    public ValueTask DisposeAsync()
+    {
+        _refresh?.Dispose();
+        Live.OrdersChanged -= OnChanged;
+        Live.Reconnected -= OnChanged;
+        base.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

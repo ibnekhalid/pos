@@ -1,0 +1,64 @@
+@page "/app/settings/audit"
+@inherits PageBase
+
+<PageTitle>@T("audit.title")</PageTitle>
+<PageHeader Title="@T("audit.title")" Subtitle="@T("audit.summary")" BackHref="app/settings" />
+
+@if (!User.Can(Permissions.Reports.Audit))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <table class="rp-table rp-panel">
+        <thead><tr><th>@T("audit.when")</th><th>@T("audit.who")</th><th>@T("audit.what")</th><th>@T("audit.reason")</th></tr></thead>
+        <tbody>
+            @foreach (var entry in _entries)
+            {
+                <tr>
+                    <td class="rp-nowrap">@Format.DateTime(entry.At)</td>
+                    <td>@(entry.ActorName ?? "—")</td>
+                    <td><span class="rp-strong">@ActionText(entry.Action)</span> <span class="rp-hint">@entry.EntityType</span></td>
+                    <td>@entry.Reason</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    @if (_entries.Count < _total)
+    {
+        <RpButton Variant="secondary" Class="rp-mt" Loading="Busy" OnClick="MoreAsync">@T("common.loadMore")</RpButton>
+    }
+}
+
+@code {
+    private readonly List<Restaurant.Contracts.Audit.AuditLogDto> _entries = [];
+    private int _page = 1;
+    private int _total;
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Reports.Audit)) return;
+        var result = await Api.GetAuditAsync(_page);
+        _entries.AddRange(result.Items);
+        _total = result.TotalCount;
+    }
+
+    private Task MoreAsync() => RunAsync(async () =>
+    {
+        _page++;
+        await LoadAsync();
+    });
+
+    /// <summary>"tax_rate.saved" → its translation, or the code itself if there is none.</summary>
+    private string ActionText(string action)
+    {
+        var key = "auditAction." + action.Replace('.', '_');
+        var text = T(key);
+        return text == key ? action : text;
+    }
+}

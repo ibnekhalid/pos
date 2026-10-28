@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <!-- Restaurant POS desktop app: .NET MAUI Blazor Hybrid for Windows counter PCs. The screens are
+         Restaurant.Client.UI, shared with the web app; this project adds only the native host and the
+         Windows platform services (storage, window, later printing). It never talks to PostgreSQL. -->
+    <PropertyGroup>
+        <!-- Windows only for release 1 (PLAN.md D13). An Android tablet target can be added here later. -->
+        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
+
+        <OutputType>Exe</OutputType>
+        <RootNamespace>Restaurant.Desktop</RootNamespace>
+        <UseMaui>true</UseMaui>
+        <SingleProject>true</SingleProject>
+        <EnableDefaultCssItems>false</EnableDefaultCssItems>
+        <MauiXamlInflator>SourceGen</MauiXamlInflator>
+
+        <ApplicationTitle>Restaurant POS</ApplicationTitle>
+        <ApplicationId>com.dsnoopdoc.restaurantpos</ApplicationId>
+
+        <ApplicationDisplayVersion>0.2</ApplicationDisplayVersion>
+        <ApplicationVersion>2</ApplicationVersion>
+
+        <!-- Unpackaged: runs as a plain .exe folder. MSIX or an installer comes in Phase 5. -->
+        <WindowsPackageType>None</WindowsPackageType>
+
+        <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+        <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#B91C1C" />
+        <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#B91C1C" BaseSize="128,128" />
+        <MauiFont Include="Resources\Fonts\*" />
+        <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Maui.Controls" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" />
+        <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Restaurant.Client.UI\Restaurant.Client.UI.csproj" />
+    </ItemGroup>
+
+</Project>

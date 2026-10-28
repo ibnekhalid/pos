@@ -1,0 +1,18 @@
+@inherits RpComponent
+@switch (Member.Status)
+{
+    case MembershipStatus.Active:
+        <Badge Kind="success">@T("staffStatus.Active")</Badge>
+        if (Member.HasPin) { <Badge>@T("staff.hasPin")</Badge> }
+        break;
+    case MembershipStatus.Invited:
+        <Badge Kind="warning">@T("staffStatus.Invited")</Badge>
+        break;
+    default:
+        <Badge Kind="danger">@T("staffStatus.Disabled")</Badge>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public StaffMemberDto Member { get; set; } = default!;
+}

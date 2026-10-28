@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DTOs, requests and enums shared by the API and both clients. No dependencies, so the
+       browser and the desktop app get the exact types the API uses without pulling in EF Core. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+</Project>

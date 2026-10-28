@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Restaurant POS</title>
+    <meta name="description" content="Orders, kitchen display, deals, inventory and cash reconciliation for restaurants." />
+    <meta name="theme-color" content="#b91c1c" />
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="stylesheet" href="_content/Restaurant.Client.UI/restaurant.css" />
+    <link rel="stylesheet" href="css/site.css" />
+    <link href="manifest.webmanifest" rel="manifest" />
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <div id="app">
+        <!-- Shown while the app downloads; replaced as soon as Blazor starts. -->
+        <div class="boot">Restaurant POS</div>
+        <noscript>Restaurant POS needs JavaScript enabled.</noscript>
+    </div>
+
+    <div id="blazor-error-ui">
+        Something went wrong.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+</body>
+
+</html>

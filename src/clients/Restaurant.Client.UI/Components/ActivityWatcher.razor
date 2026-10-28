@@ -1,0 +1,23 @@
+@implements IHandleEvent
+@* Wraps the app and reports pointer/keyboard activity (for auto-lock) without re-rendering anything. *@
+<div class="@Class" style="@Style" dir="@Dir" @onpointerdown="OnPointer" @onkeydown="OnKey">@ChildContent</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; }
+    [Parameter] public string? Dir { get; set; }
+    [Parameter] public Action? OnActivity { get; set; }
+    [Parameter] public Func<KeyboardEventArgs, Task>? OnKeyDown { get; set; }
+
+    private void OnPointer() => OnActivity?.Invoke();
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        OnActivity?.Invoke();
+        if (OnKeyDown is not null) await OnKeyDown(e);
+    }
+
+    // Activity is only recorded; the handlers that change something re-render their own components.
+    Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) => callback.InvokeAsync(arg);
+}

@@ -1,0 +1,181 @@
+@page "/app/customers"
+@inherits PageBase
+@using Restaurant.Contracts.Customers
+
+<PageTitle>@T("nav.customers")</PageTitle>
+<PageHeader Title="@T("nav.customers")" Subtitle="@T("customers.subtitle")">
+    <Actions>
+        @if (CanManage) { <RpButton Icon="add" OnClick="() => Edit(null)">@T("customers.add")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!User.CanAny(Permissions.Customers.View, Permissions.Customers.Manage))
+{
+    <NoAccess />
+}
+else
+{
+    <div class="rp-input-wrap rp-mb">
+        <Icon Name="search-outline" />
+        <input class="rp-input" placeholder="@T("customers.search")" value="@_search" @oninput="SearchAsync" aria-label="@T("customers.search")" />
+    </div>
+    @if (Error is not null && _draft is null && _detail is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+
+    @if (Loading)
+    {
+        <Loading />
+    }
+    else if (_customers.Count == 0)
+    {
+        <EmptyState Icon="people-outline" Title="@T(string.IsNullOrWhiteSpace(_search) ? "customers.emptyTitle" : "customers.noMatch")" Text="@T("customers.emptyText")" />
+    }
+    else
+    {
+        <table class="rp-table rp-panel">
+            <thead><tr><th>@T("customers.name")</th><th>@T("customers.phone")</th><th class="rp-right">@T("customers.orders")</th><th class="rp-right">@T("customers.spend")</th><th>@T("customers.lastOrder")</th></tr></thead>
+            <tbody>
+                @foreach (var customer in _customers)
+                {
+                    <tr class="rp-clickable" @onclick="() => OpenAsync(customer.Id)">
+                        <td class="rp-strong">@customer.Name</td>
+                        <td dir="ltr">@customer.Phone</td>
+                        <td class="rp-right">@customer.OrderCount</td>
+                        <td class="rp-right">@Money(customer.TotalSpend)</td>
+                        <td class="rp-nowrap">@(customer.LastOrderAt is null ? "—" : Format.Date(customer.LastOrderAt))</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+<Dialog Open="_detail is not null" OpenChanged="open => { if (!open) _detail = null; }" Title="@(_detail?.Customer.Name ?? "")" Wide>
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_detail is { } detail)
+        {
+            var c = detail.Customer;
+            <div class="rp-grid-2 rp-mb">
+                <div><div class="rp-label">@T("customers.phone")</div><div dir="ltr">@(c.Phone ?? "—")</div></div>
+                <div><div class="rp-label">@T("customers.spend")</div><div>@Money(c.TotalSpend) · @T("customers.orderCount", ("n", c.OrderCount.ToString()))</div></div>
+                @if (c.Address is not null) { <div><div class="rp-label">@T("customers.address")</div><div>@c.Address</div></div> }
+                @if (c.Notes is not null) { <div><div class="rp-label">@T("customers.notes")</div><div>@c.Notes</div></div> }
+            </div>
+            <h3>@T("customers.history")</h3>
+            @if (detail.Orders.Count == 0) { <p class="rp-muted">@T("customers.noOrders")</p> }
+            <div class="rp-list">
+                @foreach (var order in detail.Orders)
+                {
+                    <a class="rp-list-item" href="@($"app/orders/{order.Id}")">
+                        <span class="rp-strong">@order.OrderNumber</span>
+                        <span class="rp-grow rp-hint">@Format.DateTime(order.CreatedAt) · @T($"orderType.{order.Type}")</span>
+                        <Badge>@T($"orderStatus.{order.Status}")</Badge>
+                        <span>@Money(order.Total)</span>
+                    </a>
+                }
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        @if (_detail is { } detail && CanManage)
+        {
+            @if (detail.Customer.Phone is not null || detail.Customer.Address is not null || detail.Customer.Notes is not null)
+            {
+                <RpButton Variant="ghost" Icon="trash-outline" OnClick="() => _confirmRemove = true">@T("customers.removeData")</RpButton>
+            }
+            <RpButton Variant="secondary" Icon="create-outline" OnClick="() => Edit(detail.Customer)">@T("common.edit")</RpButton>
+        }
+        <RpButton OnClick="() => _detail = null">@T("common.close")</RpButton>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_draft is not null" OpenChanged="open => { if (!open) _draft = null; }" Title="@T(_draft?.Id is null ? "customers.add" : "customers.edit")" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_draft is { } d)
+        {
+            <div class="rp-grid-2">
+                <TextField Label="@T("customers.name")" @bind-Value="d.Name" MaxLength="100" Error="@FieldError("Name")" />
+                <TextField Label="@T("customers.phone")" @bind-Value="d.Phone" Type="tel" Dir="ltr" MaxLength="30" Error="@FieldError("Phone")" />
+            </div>
+            <TextField Label="@T("customers.address")" @bind-Value="d.Address" MaxLength="300" />
+            <TextField Label="@T("customers.notes")" @bind-Value="d.Notes" MaxLength="300" Hint="@T("customers.notesHint")" />
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _draft = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+<ConfirmDialog @bind-Open="_confirmRemove" Title="@T("customers.removeData")" Message="@T("customers.removeDataConfirm")" ConfirmText="@T("customers.removeData")"
+               Destructive OnConfirm="RemoveDataAsync" />
+
+@code {
+    private sealed class Draft
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Phone { get; set; }
+        public string? Address { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    private IReadOnlyList<CustomerDto> _customers = [];
+    private CustomerDetailDto? _detail;
+    private Draft? _draft;
+    private string? _search;
+    private bool _confirmRemove;
+    private CancellationTokenSource? _searchDelay;
+
+    private bool CanManage => User.Can(Permissions.Customers.Manage);
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.CanAny(Permissions.Customers.View, Permissions.Customers.Manage)) return;
+        _customers = await Api.SearchCustomersAsync(_search);
+    }
+
+    private async Task SearchAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString();
+        _searchDelay?.Cancel();
+        var delay = _searchDelay = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, delay.Token);
+            await RunAsync(LoadAsync);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    private Task OpenAsync(Guid id) => RunAsync(async () => _detail = await Api.GetCustomerAsync(id));
+
+    private void Edit(CustomerDto? customer)
+    {
+        Error = null;
+        _draft = customer is null ? new Draft() : new Draft { Id = customer.Id, Name = customer.Name, Phone = customer.Phone, Address = customer.Address, Notes = customer.Notes };
+    }
+
+    private async Task SaveAsync()
+    {
+        var d = _draft!;
+        var ok = await RunAsync(async () =>
+        {
+            var saved = await Api.SaveCustomerAsync(d.Id, new SaveCustomerRequest(d.Name ?? "", d.Phone, d.Address, d.Notes));
+            if (_detail is not null) _detail = await Api.GetCustomerAsync(saved.Id);
+            await LoadAsync();
+        }, T("common.saved"));
+        if (ok) _draft = null;
+    }
+
+    private Task RemoveDataAsync() => RunAsync(async () =>
+    {
+        await Api.RemoveCustomerDataAsync(_detail!.Customer.Id);
+        _detail = null;
+        await LoadAsync();
+    }, T("customers.removed"));
+}

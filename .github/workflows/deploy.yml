@@ -1,0 +1,154 @@
+name: Deploy to Ubuntu VM via SSH
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: restaurant-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Override with the repo variables RP_PUBLIC_SITE_URL / RP_PUBLIC_API_URL
+  # (Settings → Secrets and variables → Actions → Variables) to serve other domains.
+  PUBLIC_SITE_URL: ${{ vars.RP_PUBLIC_SITE_URL || 'https://restaurant.dsnoopdoc.com' }}
+  PUBLIC_API_URL: ${{ vars.RP_PUBLIC_API_URL || 'https://api.restaurant.dsnoopdoc.com' }}
+  # Desktop update notice (docs/DEPLOYMENT.md, "Desktop app releases"). Unset = no notice.
+  DESKTOP_LATEST_VERSION: ${{ vars.RP_DESKTOP_LATEST_VERSION }}
+  DESKTOP_DOWNLOAD_URL: ${{ vars.RP_DESKTOP_DOWNLOAD_URL }}
+  DESKTOP_MINIMUM_VERSION: ${{ vars.RP_DESKTOP_MINIMUM_VERSION }}
+  # Its own folder on the VM — /root/app belongs to dsnoopdoc and is wiped by that deploy.
+  APP_DIR: /root/restaurant
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # The test project rather than Restaurant.slnx: the solution also holds the Windows desktop app,
+      # which can't build on Linux. Integration tests use Testcontainers, which needs the runner's Docker.
+      - name: Tests
+        run: dotnet test tests/Restaurant.Tests/Restaurant.Tests.csproj
+
+      - name: Web app (Blazor PWA) build
+        run: dotnet build src/clients/Restaurant.Web/Restaurant.Web.csproj -c Release
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clean app folder on VM (avoid stale host files)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: APP_DIR
+          script: |
+            set -euo pipefail
+            rm -rf "${APP_DIR}"
+            mkdir -p "${APP_DIR}"
+
+      - name: Copy project to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: '.'
+          target: ${{ env.APP_DIR }}
+          strip_components: 0
+
+      # .env is gitignored so it never comes through the checkout/scp above, and the
+      # "Clean app folder" step wipes any copy left over from a previous deploy — write
+      # it fresh from repo secrets every run. See .env.example for what belongs here.
+      - name: Write server secrets (.env)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: APP_DIR,POSTGRES_PASSWORD,JWT_SIGNING_KEY,PUBLIC_SITE_URL,PUBLIC_API_URL,DESKTOP_LATEST_VERSION,DESKTOP_DOWNLOAD_URL,DESKTOP_MINIMUM_VERSION
+          script: |
+            set -euo pipefail
+            umask 077
+            {
+              printf '%s\n' "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
+              printf '%s\n' "JWT_SIGNING_KEY=${JWT_SIGNING_KEY}"
+              printf '%s\n' "PUBLIC_SITE_URL=${PUBLIC_SITE_URL}"
+              printf '%s\n' "PUBLIC_API_URL=${PUBLIC_API_URL}"
+              printf '%s\n' "WEB_PORT=8096"
+              printf '%s\n' "API_PORT=8097"
+              printf '%s\n' "DESKTOP_LATEST_VERSION=${DESKTOP_LATEST_VERSION:-}"
+              printf '%s\n' "DESKTOP_DOWNLOAD_URL=${DESKTOP_DOWNLOAD_URL:-}"
+              printf '%s\n' "DESKTOP_MINIMUM_VERSION=${DESKTOP_MINIMUM_VERSION:-}"
+            } > "${APP_DIR}/.env"
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.RP_POSTGRES_PASSWORD }}
+          JWT_SIGNING_KEY: ${{ secrets.RP_JWT_SIGNING_KEY }}
+
+      - name: Build, migrate, deploy, verify
+        id: deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 45m
+          envs: APP_DIR
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR}"
+            for script in \
+              scripts/deploy-production.sh \
+              scripts/restore-production.sh \
+              scripts/docker-entrypoint.sh \
+              scripts/backup-database.sh \
+              scripts/restore-drill.sh \
+              scripts/monitor.sh \
+              scripts/install-ops.sh \
+              devops/scripts/health-check.sh; do
+              if [ -f "$script" ]; then
+                sed -i 's/\r$//' "$script"
+                chmod +x "$script"
+              fi
+            done
+            ./scripts/deploy-production.sh
+
+      - name: Restore production traffic on deploy failure
+        if: failure() && steps.deploy.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 10m
+          envs: APP_DIR
+          script: |
+            set -euo pipefail
+            cd "${APP_DIR}"
+            if [ -x scripts/restore-production.sh ]; then
+              ./scripts/restore-production.sh || true
+            else
+              echo "restore-production.sh missing — attempting docker compose up"
+              docker compose --project-directory "${APP_DIR}" -f "${APP_DIR}/devops/docker-compose.yml" up -d --no-deps rp-api rp-web || true
+            fi
+            docker ps --filter name='restaurant' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true

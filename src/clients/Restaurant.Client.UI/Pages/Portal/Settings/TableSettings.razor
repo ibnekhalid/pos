@@ -1,0 +1,106 @@
+@page "/app/settings/tables"
+@inherits PageBase
+@using Restaurant.Contracts.Tables
+
+<PageTitle>@T("tables.title")</PageTitle>
+<PageHeader Title="@T("tables.title")" Subtitle="@User.CurrentBranch?.Name" BackHref="app/settings">
+    <Actions>
+        @if (User.Can(Permissions.Tenant.ManageSettings)) { <RpButton Icon="add" OnClick="() => Open(null)">@T("tables.add")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && !_open) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (_tables.Count == 0)
+    {
+        <EmptyState Icon="grid-outline" Title="@T("tables.none")" Text="@T("tables.noneText")" />
+    }
+    <div class="rp-table-picker large">
+        @foreach (var table in _tables)
+        {
+            <button class="@(table.OpenOrderId is null ? "" : "busy") @(table.IsActive ? "" : "rp-dim")" @onclick="() => Open(table)">
+                <span class="rp-strong">@table.Number</span>
+                <span class="rp-hint">@T("tables.seats", ("n", table.Seats.ToString()))</span>
+                @if (table.AreaId is { } area) { <span class="rp-hint">@_areas.FirstOrDefault(a => a.Id == area)?.Name</span> }
+            </button>
+        }
+    </div>
+    @if (User.Can(Permissions.Tenant.ManageSettings))
+    {
+        <section class="rp-panel rp-mt">
+            <h2>@T("tables.areas")</h2>
+            <div class="rp-row rp-wrap">
+                @foreach (var area in _areas) { <Badge>@area.Name</Badge> }
+                <TextField Placeholder="@T("tables.areaPlaceholder")" @bind-Value="_newArea" OnEnter="AddAreaAsync" />
+                <RpButton Small Variant="secondary" OnClick="AddAreaAsync">@T("tables.addArea")</RpButton>
+            </div>
+        </section>
+    }
+}
+
+<Dialog @bind-Open="_open" Title="@(_editing is null ? T("tables.add") : T("tables.edit"))" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <div class="rp-grid-2">
+            <TextField Label="@T("tables.number")" @bind-Value="_number" Dir="ltr" Error="@FieldError("Number")" />
+            <TextField Label="@T("tables.seatsLabel")" @bind-Value="_seats" InputMode="numeric" Dir="ltr" Error="@FieldError("Seats")" />
+        </div>
+        <SelectField Label="@T("tables.area")" @bind-Value="_areaId" Options="AreaOptions" />
+        <CheckBox Label="@T("common.active")" @bind-Value="_active" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _open = false">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private IReadOnlyList<TableDto> _tables = [];
+    private IReadOnlyList<DiningAreaDto> _areas = [];
+    private bool _open, _active = true;
+    private TableDto? _editing;
+    private string? _number, _seats, _areaId, _newArea;
+
+    private IEnumerable<(string, string)> AreaOptions => new[] { ("", "—") }.Concat(_areas.Select(a => (a.Id.ToString(), a.Name)));
+
+    protected override async Task LoadAsync()
+    {
+        _tables = await Api.GetTablesAsync();
+        _areas = await Api.GetAreasAsync();
+    }
+
+    private void Open(TableDto? table)
+    {
+        if (!User.Can(Permissions.Tenant.ManageSettings)) return;
+        Error = null;
+        _editing = table;
+        _number = table?.Number ?? (_tables.Count + 1).ToString();
+        _seats = (table?.Seats ?? 4).ToString();
+        _areaId = table?.AreaId?.ToString() ?? "";
+        _active = table?.IsActive ?? true;
+        _open = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = new SaveTableRequest(Guid.TryParse(_areaId, out var area) ? area : null, _number ?? "", int.TryParse(_seats, out var seats) ? seats : 0, _active);
+        var ok = await RunAsync(async () =>
+        {
+            await Api.SaveTableAsync(_editing?.Id, request);
+            _tables = await Api.GetTablesAsync();
+        });
+        if (ok) _open = false;
+    }
+
+    private Task AddAreaAsync() => string.IsNullOrWhiteSpace(_newArea) ? Task.CompletedTask : RunAsync(async () =>
+    {
+        await Api.SaveAreaAsync(null, new SaveDiningAreaRequest(_newArea.Trim(), _areas.Count + 1));
+        _newArea = null;
+        _areas = await Api.GetAreasAsync();
+    });
+}

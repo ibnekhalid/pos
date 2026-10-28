@@ -1,0 +1,30 @@
+<Solution>
+  <Folder Name="/api/">
+    <Project Path="src/api/Restaurant.Domain/Restaurant.Domain.csproj" />
+    <Project Path="src/api/Restaurant.Contracts/Restaurant.Contracts.csproj" />
+    <Project Path="src/api/Restaurant.Application/Restaurant.Application.csproj" />
+    <Project Path="src/api/Restaurant.Infrastructure/Restaurant.Infrastructure.csproj" />
+    <Project Path="src/api/Restaurant.Api/Restaurant.Api.csproj" />
+  </Folder>
+  <Folder Name="/clients/">
+    <Project Path="src/clients/Restaurant.Client.Core/Restaurant.Client.Core.csproj" />
+    <Project Path="src/clients/Restaurant.Client.UI/Restaurant.Client.UI.csproj" />
+    <Project Path="src/clients/Restaurant.Web/Restaurant.Web.csproj" />
+    <Project Path="src/clients/Restaurant.Desktop/Restaurant.Desktop.csproj">
+      <Deploy />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Restaurant.Tests/Restaurant.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="PLAN.md" />
+    <File Path="README.md" />
+    <File Path="docs/DEPLOYMENT.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path=".github/workflows/deploy.yml" />
+    <File Path="devops/docker-compose.yml" />
+    <File Path="devops/Dockerfile" />
+  </Folder>
+</Solution>

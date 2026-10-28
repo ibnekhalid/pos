@@ -1,0 +1,209 @@
+@page "/app/sessions"
+@inherits PageBase
+@using Restaurant.Contracts.Sessions
+
+<PageTitle>@T("nav.sessions")</PageTitle>
+<PageHeader Title="@T("nav.sessions")" Subtitle="@User.CurrentBranch?.Name" />
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+    @if (Error is not null && !_cashOpen && _reopening is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+    @if (_session is null)
+    {
+        <section class="rp-panel rp-narrow">
+            <h2>@T("day.notStarted")</h2>
+            @if (User.Can(Permissions.Sessions.Start))
+            {
+                <p class="rp-muted">@T("day.startHint")</p>
+                <TextField Label="@T("day.openingCash")" @bind-Value="_openingCash" InputMode="decimal" Dir="ltr" Hint="@T("day.openingCashHint")" />
+                <RpButton Icon="play-outline" Loading="Busy" OnClick="StartAsync">@T("day.start")</RpButton>
+            }
+            else
+            {
+                <p class="rp-muted">@T("day.askManager")</p>
+            }
+        </section>
+    }
+    else
+    {
+        var s = _session;
+        <section class="rp-panel">
+            <div class="rp-row rp-wrap">
+                <div class="rp-grow">
+                    <h2>@T("day.businessDate", ("date", s.BusinessDate.ToString("dddd d MMM yyyy")))</h2>
+                    <p class="rp-muted">@T("day.startedBy", ("name", s.StartedByName ?? ""), ("time", Format.DateTime(s.StartedAt)), ("hours", Elapsed(s.StartedAt)))</p>
+                    @if (s.ReopenReason is not null) { <Badge Kind="warning">@T("day.reopened"): @s.ReopenReason</Badge> }
+                </div>
+                @if (User.Can(Permissions.Sessions.CashMovements)) { <RpButton Variant="secondary" Icon="swap-vertical-outline" OnClick="OpenCash">@T("day.cashInOut")</RpButton> }
+                @if (User.Can(Permissions.Sessions.Close)) { <a class="rp-btn" href="app/sessions/close"><Icon Name="lock-closed-outline" /> @T("day.close")</a> }
+            </div>
+            <table class="rp-table rp-mt">
+                <thead><tr><th>@T("registers.title")</th><th>@T("day.openedBy")</th><th class="rp-right">@T("day.openingCash")</th><th class="rp-right">@T("day.expectedCash")</th></tr></thead>
+                <tbody>
+                    @foreach (var register in s.Registers)
+                    {
+                        <tr><td>@register.RegisterName</td><td>@register.OpenedByName</td><td class="rp-right">@Money(register.OpeningCash)</td><td class="rp-right rp-strong">@Money(register.ExpectedCash)</td></tr>
+                    }
+                </tbody>
+            </table>
+            @if (User.Can(Permissions.Sessions.Start) && _registers.Any(r => r.IsActive && s.Registers.All(x => x.RegisterId != r.Id)))
+            {
+                <div class="rp-row rp-mt">
+                    <SelectField Label="@T("day.openAnother")" @bind-Value="_registerId" Options="_registers.Where(r => r.IsActive && s.Registers.All(x => x.RegisterId != r.Id)).Select(r => (r.Id.ToString(), r.Name))" />
+                    <TextField Label="@T("day.openingCash")" @bind-Value="_openingCash" InputMode="decimal" Dir="ltr" />
+                    <RpButton Variant="secondary" Loading="Busy" OnClick="OpenRegisterAsync">@T("day.openRegister")</RpButton>
+                </div>
+            }
+        </section>
+
+        @if (_movements.Count > 0)
+        {
+            <section class="rp-panel">
+                <h2>@T("day.cashMovements")</h2>
+                <table class="rp-table">
+                    <tbody>
+                        @foreach (var m in _movements)
+                        {
+                            <tr>
+                                <td class="rp-nowrap">@m.At.ToLocalTime().ToString("h:mm tt")</td>
+                                <td>@T($"cashType.{m.Type}") <span class="rp-hint">@m.Reason</span></td>
+                                <td>@m.ByName</td>
+                                <td class="rp-right @(m.Type is CashMovementType.PaidOut or CashMovementType.CashRefund ? "rp-error" : "")">@(m.Type is CashMovementType.PaidOut or CashMovementType.CashRefund ? "-" : "+")@Money(m.Amount)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
+        }
+    }
+
+    @if (_history.Count > 0)
+    {
+        <section class="rp-panel">
+            <h2>@T("day.history")</h2>
+            <table class="rp-table">
+                <thead><tr><th>@T("day.date")</th><th>@T("orders.status")</th><th class="rp-right">@T("day.billed")</th><th class="rp-right">@T("day.cashDifference")</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var h in _history)
+                    {
+                        <tr>
+                            <td><a href="@($"app/sessions/{h.Id}")">@h.BusinessDate.ToString("ddd d MMM yyyy")</a></td>
+                            <td><Badge Kind="@(h.Status == SessionStatus.Open ? "success" : "neutral")">@T($"sessionStatus.{h.Status}")</Badge></td>
+                            <td class="rp-right">@Money(h.TotalBilled)</td>
+                            <td class="rp-right">@(h.CashDifference is { } d ? Money(d) : "—")</td>
+                            <td class="rp-right">
+                                @if (h.Status == SessionStatus.Closed && _session is null && User.Can(Permissions.Sessions.Reopen))
+                                {
+                                    <RpButton Small Variant="ghost" OnClick="() => { _reopening = h; _reason = null; Error = null; }">@T("day.reopen")</RpButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+    }
+}
+
+<Dialog @bind-Open="_cashOpen" Title="@T("day.cashInOut")" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <div class="rp-segmented block rp-mb">
+            <button class="@(_cashType == CashMovementType.PaidOut ? "active" : "")" @onclick="() => _cashType = CashMovementType.PaidOut">@T("cashType.PaidOut")</button>
+            <button class="@(_cashType == CashMovementType.CashIn ? "active" : "")" @onclick="() => _cashType = CashMovementType.CashIn">@T("cashType.CashIn")</button>
+        </div>
+        <TextField Label="@T("pay.amount")" @bind-Value="_cashAmount" InputMode="decimal" Dir="ltr" Error="@FieldError("Amount")" />
+        <TextField Label="@T("day.cashReason")" @bind-Value="_reason" Placeholder="@T("day.cashReasonPlaceholder")" Error="@FieldError("Reason")" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _cashOpen = false">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="RecordCashAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_reopening is not null" OpenChanged="open => { if (!open) _reopening = null; }" Title="@T("day.reopenTitle")" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <p class="rp-muted">@T("day.reopenText")</p>
+        <TextField Label="@T("orders.reason")" @bind-Value="_reason" Error="@FieldError("Reason")" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _reopening = null">@T("common.cancel")</RpButton>
+        <RpButton Variant="danger" Loading="Busy" OnClick="ReopenAsync">@T("day.reopen")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private BusinessSessionDto? _session;
+    private IReadOnlyList<CashMovementDto> _movements = [];
+    private IReadOnlyList<SessionHistoryItemDto> _history = [];
+    private IReadOnlyList<RegisterDto> _registers = [];
+    private string? _openingCash, _registerId, _cashAmount, _reason;
+    private bool _cashOpen;
+    private CashMovementType _cashType = CashMovementType.PaidOut;
+    private Guid _cashRequestId = Guid.NewGuid();
+    private SessionHistoryItemDto? _reopening;
+
+    protected override async Task LoadAsync()
+    {
+        _session = await Api.GetCurrentSessionAsync();
+        _movements = _session is not null && User.CanAny(Permissions.Sessions.CashMovements, Permissions.Sessions.Close)
+            ? (await Api.GetCashMovementsAsync(_session.Id)).Where(m => m.Type is CashMovementType.PaidOut or CashMovementType.CashIn or CashMovementType.CashRefund).ToList()
+            : [];
+        _history = User.CanAny(Permissions.Reports.Sales, Permissions.Sessions.Close) ? await Api.GetSessionHistoryAsync() : [];
+        if (User.CurrentBranch is { } branch) _registers = await Api.GetRegistersAsync(branch.Id);
+    }
+
+    private static string Elapsed(DateTimeOffset since)
+    {
+        var span = DateTimeOffset.Now - since;
+        return $"{(int)span.TotalHours}h {span.Minutes:00}m";
+    }
+
+    private Task StartAsync() => RunAsync(async () =>
+    {
+        _session = await Api.StartSessionAsync(new StartSessionRequest(Format.ParseNumber(_openingCash) ?? 0, null));
+        _openingCash = null;
+        await LoadAsync();
+    }, T("day.started"));
+
+    private Task OpenRegisterAsync() => RunAsync(async () =>
+    {
+        _session = await Api.OpenRegisterAsync(new OpenRegisterRequest(Guid.Parse(_registerId!), Format.ParseNumber(_openingCash) ?? 0));
+        _openingCash = null;
+    });
+
+    private void OpenCash()
+    {
+        Error = null;
+        _cashAmount = _reason = null;
+        _cashRequestId = Guid.NewGuid();
+        _cashOpen = true;
+    }
+
+    private async Task RecordCashAsync()
+    {
+        var ok = await RunAsync(async () =>
+        {
+            await Api.RecordCashAsync(new RecordCashMovementRequest(_cashRequestId, null, _cashType, Format.ParseNumber(_cashAmount) ?? 0, _reason ?? ""));
+            await LoadAsync();
+        }, T("common.saved"));
+        if (ok) _cashOpen = false;
+    }
+
+    private async Task ReopenAsync()
+    {
+        var ok = await RunAsync(async () =>
+        {
+            await Api.ReopenSessionAsync(_reopening!.Id, _reason ?? "");
+            await LoadAsync();
+        }, T("day.reopenedDone"));
+        if (ok) _reopening = null;
+    }
+}

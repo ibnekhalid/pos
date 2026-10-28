@@ -1,0 +1,567 @@
+@page "/app/pos"
+@inherits PageBase
+@implements IAsyncDisposable
+@using Restaurant.Contracts.Customers
+@using Restaurant.Contracts.Deals
+@using Restaurant.Contracts.Menu
+@using Restaurant.Contracts.Orders
+@using Restaurant.Contracts.Sessions
+@using Restaurant.Contracts.Tables
+@using Microsoft.JSInterop
+@inject UiInterop Ui
+@inject PrintService Printer
+@inject LiveUpdates Live
+
+<PageTitle>@T("nav.pos")</PageTitle>
+
+@if (!User.Can(Permissions.Orders.Create))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else if (_session is null)
+{
+    <EmptyState Icon="time-outline" Title="@T("pos.dayNotStarted")" Text="@T("pos.dayNotStartedText")">
+        <a class="rp-btn" href="app/sessions">@T("pos.goToBusinessDay")</a>
+    </EmptyState>
+}
+else if (_menu is not null)
+{
+    <div class="rp-pos">
+        <nav class="rp-pos-cats" aria-label="@T("pos.categories")">
+            <button class="@(_category is null && !_dealsTab ? "active" : "")" @onclick="() => { _category = null; _dealsTab = false; }">@T("pos.all")</button>
+            @if (_menu.Deals is { Count: > 0 })
+            {
+                <button class="@(_dealsTab ? "active" : "")" style="--cat:#7C3AED" @onclick="() => { _dealsTab = true; _category = null; }"><Icon Name="pricetags-outline" Size="16" /> @T("nav.deals")</button>
+            }
+            @foreach (var category in _menu.Categories)
+            {
+                <button class="@(_category == category.Id ? "active" : "")" style="@(category.Color is null ? "" : $"--cat:{category.Color}")"
+                        @onclick="() => { _category = category.Id; _dealsTab = false; }">@(L.IsRtl && category.NameUr is not null ? category.NameUr : category.Name)</button>
+            }
+        </nav>
+
+        <section class="rp-pos-items">
+            <div class="rp-input-wrap rp-pos-search">
+                <Icon Name="search-outline" />
+                <input id="pos-search" class="rp-input" placeholder="@T("pos.search")" value="@_search"
+                       @oninput="e => _search = e.Value?.ToString()" />
+                <span class="rp-kbd">F3</span>
+            </div>
+            <div class="rp-pos-grid">
+                @foreach (var deal in VisibleDeals)
+                {
+                    <button class="rp-pos-item rp-pos-deal" @onclick="() => PickDeal(deal)" style="--cat:#7C3AED">
+                        <span class="rp-pos-item-name">@(L.IsRtl && deal.NameUr is not null ? deal.NameUr : deal.Name)</span>
+                        <span class="rp-pos-item-price">@Money(deal.BundlePrice ?? 0)</span>
+                        <Badge Kind="info">@T("deals.combo")</Badge>
+                    </button>
+                }
+                @foreach (var item in VisibleItems)
+                {
+                    var unavailable = item.Availability != MenuAvailability.Available;
+                    <button class="rp-pos-item @(unavailable ? "unavailable" : "")" disabled="@unavailable" @onclick="() => Pick(item)"
+                            style="@CategoryColor(item.CategoryId)">
+                        <span class="rp-pos-item-name">@(L.IsRtl && item.NameUr is not null ? item.NameUr : item.Name)</span>
+                        <span class="rp-pos-item-price">@PriceText(item)</span>
+                        @if (unavailable) { <Badge Kind="danger">@T($"availability.{item.Availability}")</Badge> }
+                    </button>
+                }
+                @if (!VisibleItems.Any() && !VisibleDeals.Any())
+                {
+                    <p class="rp-muted">@T("pos.noItems")</p>
+                }
+            </div>
+        </section>
+
+        <aside class="rp-pos-cart">
+            @if (_existing is not null)
+            {
+                <div class="rp-row">
+                    <div class="rp-grow">
+                        <div class="rp-strong">@T("pos.addingTo", ("number", _existing.OrderNumber))</div>
+                        <div class="rp-hint">@T($"orderType.{_existing.Type}")@(_existing.TableLabel is null ? "" : $" · {T("receipt.table")} {_existing.TableLabel}")</div>
+                    </div>
+                    <RpButton Small Variant="ghost" OnClick="NewOrder">@T("pos.newOrder")</RpButton>
+                </div>
+                <div class="rp-cart-existing">
+                    @foreach (var line in _existing.Lines.Where(l => l.Status == OrderLineStatus.Active))
+                    {
+                        <div class="rp-receipt-line"><span>@line.Quantity × @line.Name@(line.VariantName is null ? "" : $" ({line.VariantName})")</span><span>@Money(line.LineTotal)</span></div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="rp-segmented block">
+                    @foreach (var type in new[] { OrderType.DineIn, OrderType.Takeaway, OrderType.Delivery })
+                    {
+                        <button class="@(_type == type ? "active" : "")" @onclick="() => SetTypeAsync(type)">@T($"orderType.{type}")</button>
+                    }
+                </div>
+                @if (_type == OrderType.DineIn && _tables.Count > 0)
+                {
+                    <div class="rp-table-picker">
+                        @foreach (var table in _tables.Where(t => t.IsActive))
+                        {
+                            <button class="@(_tableId == table.Id ? "active" : "") @(table.OpenOrderId is null ? "" : "busy")" @onclick="() => PickTable(table)"
+                                    title="@(table.OpenOrderNumber is null ? T("pos.tableFree") : T("pos.tableBusy", ("number", table.OpenOrderNumber)))">@table.Number</button>
+                        }
+                    </div>
+                }
+                @if (_type != OrderType.DineIn || _showCustomer)
+                {
+                    <div class="rp-grid-2">
+                        <TextField Placeholder="@T("pos.customerName")" @bind-Value="_customerName" MaxLength="100" />
+                        <TextField Placeholder="@T("pos.customerPhone")" Value="@_customerPhone" ValueChanged="PhoneChangedAsync" Type="tel" Dir="ltr" MaxLength="30" />
+                    </div>
+                    @if (_customer is not null)
+                    {
+                        <div class="rp-hint rp-mb"><Icon Name="person-circle-outline" Size="16" /> @T("pos.returningCustomer", ("name", _customer.Name), ("n", _customer.OrderCount.ToString()))</div>
+                    }
+                }
+                else
+                {
+                    <button class="rp-link rp-mb" @onclick="() => _showCustomer = true">@T("pos.addCustomer")</button>
+                }
+            }
+
+            <div class="rp-cart-lines">
+                @if (!HasItems)
+                {
+                    <p class="rp-muted rp-center rp-mt">@T("pos.emptyCart")</p>
+                }
+                @foreach (var entry in _deals)
+                {
+                    <div class="rp-cart-line">
+                        <button class="rp-cart-line-main" @onclick="() => EditDeal(entry)">
+                            <span class="rp-strong"><Icon Name="pricetags-outline" Size="14" /> @(L.IsRtl && entry.Deal.NameUr is not null ? entry.Deal.NameUr : entry.Deal.Name)</span>
+                            <span class="rp-hint">@string.Join(" + ", entry.Choices.Select(c => c is null ? "?" : $"{c.Item.Name}{(c.Variant is null ? "" : $" ({c.Variant.Name})")}{(c.Modifiers.Count == 0 ? "" : " + " + string.Join(", ", c.Modifiers.Select(m => m.Name)))}"))</span>
+                        </button>
+                        <div class="rp-stepper small">
+                            <button type="button" @onclick="() => ChangeDealQuantityAsync(entry, -1)" aria-label="@T("pos.less")">−</button>
+                            <span>@entry.Quantity</span>
+                            <button type="button" @onclick="() => ChangeDealQuantityAsync(entry, 1)" aria-label="@T("pos.more")">+</button>
+                        </div>
+                        <span class="rp-cart-line-total">@Money(entry.Total)</span>
+                    </div>
+                }
+                @foreach (var line in _cart)
+                {
+                    <div class="rp-cart-line">
+                        <button class="rp-cart-line-main" @onclick="() => Edit(line)">
+                            <span class="rp-strong">@(L.IsRtl && line.Item.NameUr is not null ? line.Item.NameUr : line.Item.Name)@(line.Variant is null ? "" : $" ({line.Variant.Name})")</span>
+                            @if (line.Modifiers.Count > 0) { <span class="rp-hint">+ @string.Join(", ", line.Modifiers.Select(m => m.Name))</span> }
+                            @if (line.Notes is not null) { <span class="rp-hint">» @line.Notes</span> }
+                        </button>
+                        <div class="rp-stepper small">
+                            <button type="button" @onclick="() => ChangeQuantityAsync(line, -1)" aria-label="@T("pos.less")">−</button>
+                            <span>@line.Quantity</span>
+                            <button type="button" @onclick="() => ChangeQuantityAsync(line, 1)" aria-label="@T("pos.more")">+</button>
+                        </div>
+                        <span class="rp-cart-line-total">@Money(line.Total)</span>
+                    </div>
+                }
+            </div>
+
+            <div class="rp-cart-totals">
+                @if (_existing is null && HasItems)
+                {
+                    <div class="rp-coupon">
+                        <input class="rp-input rp-boxed" placeholder="@T("pos.coupon")" value="@_coupon" dir="ltr" maxlength="30" aria-label="@T("pos.coupon")"
+                               @onchange="CouponChangedAsync" />
+                        @if (_coupon is not null && _preview is not null)
+                        {
+                            @if (CouponApplied) { <Badge Kind="success">@T("pos.couponApplied")</Badge> } else { <Badge Kind="warning">@T("pos.couponNotApplied")</Badge> }
+                        }
+                    </div>
+                }
+                @if (_preview is not null && HasItems)
+                {
+                    <div class="rp-receipt-meta"><span>@T("receipt.subtotal")</span><span>@Money(_preview.Subtotal)</span></div>
+                    @foreach (var deal in (_preview.Deals ?? []).Where(d => d.Discount > 0))
+                    {
+                        <div class="rp-receipt-meta rp-deal-line"><span>@deal.Name@(deal.Quantity > 1 ? $" × {deal.Quantity}" : "")</span><span>-@Money(deal.Discount)</span></div>
+                    }
+                    @if (_preview.Discount - _preview.DealDiscount > 0) { <div class="rp-receipt-meta"><span>@T("receipt.discount")</span><span>-@Money(_preview.Discount - _preview.DealDiscount)</span></div> }
+                    @if (_preview.ServiceCharge > 0) { <div class="rp-receipt-meta"><span>@T("receipt.serviceCharge")</span><span>@Money(_preview.ServiceCharge)</span></div> }
+                    @foreach (var tax in _preview.Taxes) { <div class="rp-receipt-meta"><span>@tax.Name @Format.Number(tax.Percent)%</span><span>@Money(tax.Amount)</span></div> }
+                    @if (_preview.Rounding != 0) { <div class="rp-receipt-meta"><span>@T("receipt.rounding")</span><span>@Money(_preview.Rounding)</span></div> }
+                    <div class="rp-cart-total"><span>@T(_existing is null ? "receipt.total" : "pos.newTotal")</span><span>@Money(_preview.Total)</span></div>
+                }
+                else if (_existing is not null)
+                {
+                    <div class="rp-cart-total"><span>@T("pay.due")</span><span>@Money(_existing.Balance)</span></div>
+                }
+                else
+                {
+                    <div class="rp-cart-total"><span>@T("receipt.total")</span><span>@Money(0)</span></div>
+                }
+            </div>
+
+            @if (Error is not null) { <Notice Kind="danger" Class="rp-mt-sm">@Error</Notice> }
+            @if (Success is not null) { <Notice Kind="success" Class="rp-mt-sm">@Success</Notice> }
+            @foreach (var warning in _stockWarnings) { <Notice Kind="warning" Class="rp-mt-sm">@warning</Notice> }
+
+            <div class="rp-cart-actions">
+                <RpButton Variant="secondary" Disabled="!HasItems || !User.Can(Permissions.Orders.SendToKitchen)" Loading="Busy && !_paying"
+                          Icon="flame-outline" OnClick="() => SubmitAsync(pay: false)">@T("pos.send") <span class="rp-kbd">F8</span></RpButton>
+                <RpButton Disabled="(!HasItems && _existing is null) || !User.Can(Permissions.Payments.Take)" Loading="Busy && _paying"
+                          Icon="cash-outline" OnClick="() => SubmitAsync(pay: true)">@T("pos.pay") <span class="rp-kbd">F9</span></RpButton>
+            </div>
+            <RpButton Variant="ghost" Small Block OnClick="NewOrder">@T("pos.clear") <span class="rp-kbd">F2</span></RpButton>
+        </aside>
+    </div>
+}
+
+<ItemOptionsDialog @bind-Line="_editing" Groups="EditingGroups" IsEdit="_editingExisting" OnConfirm="ConfirmLineAsync" />
+<DealDialog @bind-Entry="_editingDeal" Menu="_menu" IsEdit="_editingExisting" OnConfirm="ConfirmDealAsync" />
+<PaymentDialog @bind-Open="_payOpen" @bind-Order="_payOrder" OnDone="PaidAsync" />
+
+@code {
+    [SupplyParameterFromQuery(Name = "order")] public Guid? OrderId { get; set; }
+
+    private PosMenuDto? _menu;
+    private BusinessSessionDto? _session;
+    private IReadOnlyList<TableDto> _tables = [];
+    private Guid? _category;
+    private string? _search;
+    private readonly List<CartLine> _cart = [];
+    private readonly List<DealCartEntry> _deals = [];
+    private bool _dealsTab;
+    private DealCartEntry? _editingDeal;
+    private string? _coupon;
+    private CustomerDto? _customer;
+    private IReadOnlyList<string> _stockWarnings = [];
+    private OrderType _type = OrderType.DineIn;
+    private Guid? _tableId;
+    private string? _customerName, _customerPhone;
+    private bool _showCustomer;
+    private OrderDto? _existing;
+    private PriceBreakdownDto? _preview;
+    private Guid _requestId = Guid.NewGuid();
+    private CancellationTokenSource? _previewDelay;
+
+    private CartLine? _editing;
+    private bool _editingExisting;
+    private bool _payOpen, _paying;
+    private OrderDto? _payOrder;
+
+    private DotNetObjectReference<Pos>? _self;
+    private int? _hotkeys;
+
+    private bool HasItems => _cart.Count > 0 || _deals.Count > 0;
+
+    private bool CouponApplied => _preview?.Deals?.Any(d => d.Type != Restaurant.Contracts.Enums.DealType.Bundle && d.Discount > 0) == true;
+
+    private IEnumerable<DealDto> VisibleDeals => (_menu?.Deals ?? [])
+        .Where(d => string.IsNullOrWhiteSpace(_search) ? _dealsTab : d.Name.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<PosMenuItemDto> VisibleItems => _dealsTab && string.IsNullOrWhiteSpace(_search) ? [] : (_menu?.Items ?? [])
+        .Where(i => string.IsNullOrWhiteSpace(_search)
+            ? _category is null || i.CategoryId == _category
+            : i.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) || (i.NameUr?.Contains(_search) ?? false));
+
+    private IReadOnlyList<ModifierGroupDto> EditingGroups => _editing is null || _menu is null ? []
+        : _editing.Item.ModifierGroupIds.Select(id => _menu.ModifierGroups.FirstOrDefault(g => g.Id == id)).Where(g => g is not null).Select(g => g!).ToList();
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Orders.Create)) return;
+        _session = await Api.GetCurrentSessionAsync();
+        if (_session is null) return;
+
+        var menu = Api.GetPosMenuAsync();
+        var tables = Api.GetTablesAsync();
+        _menu = await menu;
+        _tables = await tables;
+        if (_tables.Count == 0) _type = OrderType.Takeaway;
+
+        if (OrderId is { } id)
+        {
+            _existing = await Api.GetOrderAsync(id);
+            if (_existing.Status is OrderStatus.Completed or OrderStatus.Cancelled or OrderStatus.Voided) _existing = null;
+        }
+
+        Live.OrdersChanged += OnOrdersChanged;
+        _ = Live.EnsureConnectedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_hotkeys is null && _menu is not null)
+        {
+            _self = DotNetObjectReference.Create(this);
+            _hotkeys = await Ui.RegisterHotkeysAsync(_self, "F2", "F3", "F8", "F9");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnHotkey(string key)
+    {
+        switch (key)
+        {
+            case "F2": NewOrder(); break;
+            case "F3": await Ui.FocusAsync("pos-search"); break;
+            case "F8" when HasItems: await SubmitAsync(pay: false); break;
+            case "F9" when HasItems || _existing is not null: await SubmitAsync(pay: true); break;
+        }
+        StateHasChanged();
+    }
+
+    private string PriceText(PosMenuItemDto item) =>
+        item.Variants.Count == 0 ? Money(item.Price) : T("pos.from", ("price", Money(item.Variants.Min(v => v.Price))));
+
+    private string CategoryColor(Guid categoryId) =>
+        _menu?.Categories.FirstOrDefault(c => c.Id == categoryId)?.Color is { } color ? $"--cat:{color}" : "";
+
+    private void Pick(PosMenuItemDto item)
+    {
+        var line = new CartLine { Item = item };
+        if (item.Variants.Count > 0 || item.ModifierGroupIds.Count > 0)
+        {
+            _editingExisting = false;
+            _editing = line;
+            return;
+        }
+        _ = AddLineAsync(line);
+    }
+
+    private void Edit(CartLine line)
+    {
+        _editingExisting = true;
+        _editing = line;
+    }
+
+    private void PickDeal(DealDto deal)
+    {
+        _editingExisting = false;
+        _editingDeal = DealCartEntry.For(deal);
+    }
+
+    private void EditDeal(DealCartEntry entry)
+    {
+        _editingExisting = true;
+        _editingDeal = entry;
+    }
+
+    private async Task ConfirmDealAsync(DealCartEntry entry)
+    {
+        Success = null;
+        if (!_editingExisting) _deals.Add(entry);
+        await RefreshPreviewAsync();
+    }
+
+    private async Task ChangeDealQuantityAsync(DealCartEntry entry, int delta)
+    {
+        entry.Quantity += delta;
+        if (entry.Quantity <= 0) _deals.Remove(entry);
+        else entry.Quantity = Math.Min(20, entry.Quantity);
+        await RefreshPreviewAsync();
+    }
+
+    private async Task CouponChangedAsync(ChangeEventArgs e)
+    {
+        _coupon = Blank(e.Value?.ToString())?.ToUpperInvariant();
+        await RefreshPreviewAsync();
+    }
+
+    /// <summary>A known phone number fills in the customer's name and shows they're a regular.</summary>
+    private async Task PhoneChangedAsync(string? phone)
+    {
+        _customerPhone = phone;
+        _customer = null;
+        var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length < 10) return;
+        try
+        {
+            var found = await Api.SearchCustomersAsync(digits);
+            _customer = found.Count == 1 ? found[0] : null;
+            if (_customer is not null && string.IsNullOrWhiteSpace(_customerName)) _customerName = _customer.Name;
+        }
+        catch
+        {
+            // Lookup is a convenience: the order still links by phone on the server.
+        }
+    }
+
+    private async Task ConfirmLineAsync(CartLine line)
+    {
+        if (_editingExisting)
+        {
+            await RefreshPreviewAsync();
+            return;
+        }
+        await AddLineAsync(line);
+    }
+
+    private async Task AddLineAsync(CartLine line)
+    {
+        Success = null;
+        var same = _cart.FirstOrDefault(l => l.SameAs(line));
+        if (same is not null) same.Quantity = Math.Min(99, same.Quantity + line.Quantity);
+        else _cart.Add(line);
+        await RefreshPreviewAsync();
+    }
+
+    private async Task ChangeQuantityAsync(CartLine line, int delta)
+    {
+        line.Quantity += delta;
+        if (line.Quantity <= 0) _cart.Remove(line);
+        else line.Quantity = Math.Min(99, line.Quantity);
+        await RefreshPreviewAsync();
+    }
+
+    private async Task SetTypeAsync(OrderType type)
+    {
+        _type = type;
+        if (type != OrderType.DineIn) _tableId = null;
+        await RefreshPreviewAsync();
+    }
+
+    private void PickTable(TableDto table)
+    {
+        if (table.OpenOrderId is { } openOrder)
+        {
+            // An occupied table: carry on with its order instead of starting another.
+            Nav.NavigateTo($"app/pos?order={openOrder}");
+            return;
+        }
+        _tableId = _tableId == table.Id ? null : table.Id;
+    }
+
+    /// <summary>Totals from the server (debounced while tapping). The cart never computes the bill itself.</summary>
+    private async Task RefreshPreviewAsync()
+    {
+        _previewDelay?.Cancel();
+        if (!HasItems)
+        {
+            _preview = null;
+            return;
+        }
+        var delay = _previewDelay = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, delay.Token);
+            _preview = await Api.PreviewPriceAsync(new PricePreviewRequest(_existing?.Type ?? _type, Lines(), null, _existing?.Id,
+                _deals.Select(d => d.ToSelection()).ToList(), _existing is null ? _coupon : null));
+            Error = null;
+        }
+        catch (TaskCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Error = Describe(ex);
+        }
+        StateHasChanged();
+    }
+
+    private List<OrderLineRequest> Lines() =>
+        _cart.Select(l => new OrderLineRequest(l.Item.Id, l.Variant?.Id, l.Quantity, l.Modifiers.Select(m => m.Id).ToList(),
+            string.IsNullOrWhiteSpace(l.Notes) ? null : l.Notes.Trim())).ToList();
+
+    /// <summary>Send: create (or add to) the order and send it to the kitchen. Pay: the same, then take payment.</summary>
+    private async Task SubmitAsync(bool pay)
+    {
+        if (Busy) return;
+        _paying = pay;
+        OrderDto? order = _existing;
+
+        if (HasItems)
+        {
+            var deals = _deals.Select(d => d.ToSelection()).ToList();
+            var ok = await RunAsync(async () =>
+            {
+                order = _existing is null
+                    ? await Api.CreateOrderAsync(new CreateOrderRequest(_requestId, _type, _type == OrderType.DineIn ? _tableId : null, null,
+                        Blank(_customerName), Blank(_customerPhone), null, Lines(), null, SendToKitchen: true, Deals: deals, CouponCode: _coupon,
+                        CustomerId: _customer?.Id))
+                    : await Api.AddOrderLinesAsync(_existing.Id, new AddOrderLinesRequest(_requestId, Lines(), SendToKitchen: true, Deals: deals));
+            });
+            if (!ok) return;
+
+            _requestId = Guid.NewGuid();
+            _stockWarnings = order!.StockWarnings ?? [];
+            var printError = await Printer.PrintKitchenRoundAsync(order!.Id);
+            Success = printError is null
+                ? T("pos.sent", ("number", order.OrderNumber))
+                : T("pos.sentPrintFailed", ("number", order.OrderNumber), ("error", printError));
+        }
+
+        if (pay && order is not null && order.Balance > 0)
+        {
+            _payOrder = order;
+            _payOpen = true;
+        }
+        else
+        {
+            ResetCart();
+            if (_existing is not null) Nav.NavigateTo("app/pos");
+        }
+        _tables = await Api.GetTablesAsync();
+    }
+
+    private async Task PaidAsync()
+    {
+        ResetCart();
+        Success = T("pos.paidDone", ("number", _payOrder?.OrderNumber ?? ""));
+        _tables = await Api.GetTablesAsync();
+        if (_existing is not null) Nav.NavigateTo("app/pos");
+    }
+
+    private void NewOrder()
+    {
+        ResetCart();
+        Success = null;
+        Error = null;
+        _stockWarnings = [];
+        if (_existing is not null) Nav.NavigateTo("app/pos");
+    }
+
+    private void ResetCart()
+    {
+        _cart.Clear();
+        _deals.Clear();
+        _coupon = null;
+        _customer = null;
+        _preview = null;
+        _tableId = null;
+        _customerName = _customerPhone = null;
+        _showCustomer = false;
+        _requestId = Guid.NewGuid();
+        _existing = null;
+    }
+
+    private void OnOrdersChanged() => InvokeAsync(async () =>
+    {
+        try { _tables = await Api.GetTablesAsync(); } catch { /* next time */ }
+        StateHasChanged();
+    });
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Navigating between /app/pos and /app/pos?order=... reuses the page.
+        if (!Loading && _session is not null && OrderId != _existing?.Id)
+        {
+            ResetCart();
+            if (OrderId is { } id)
+            {
+                await ReloadAsync();
+            }
+        }
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    public async ValueTask DisposeAsync()
+    {
+        Live.OrdersChanged -= OnOrdersChanged;
+        if (_hotkeys is { } id) await Ui.UnregisterHotkeysAsync(id);
+        _self?.Dispose();
+        base.Dispose();
+    }
+}

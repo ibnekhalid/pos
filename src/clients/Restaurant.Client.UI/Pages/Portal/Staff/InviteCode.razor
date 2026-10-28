@@ -1,0 +1,17 @@
+@inherits RpComponent
+@* The one-time invite code, shown once after adding a staff member or issuing a new code. *@
+<div class="rp-center">
+    <p>@T("staff.inviteFor", ("name", Invite.Member.DisplayName))</p>
+    <div class="rp-invite-code" dir="ltr">@Invite.InviteCode</div>
+    <p class="rp-hint">@T("staff.inviteExpires", ("date", Format.Date(Invite.ExpiresAt)))</p>
+</div>
+<ol class="rp-steps">
+    <li>@T("staff.inviteStep1")</li>
+    <li>@T("staff.inviteStep2")</li>
+    <li>@T("staff.inviteStep3", ("login", Invite.Member.Phone ?? Invite.Member.Email ?? ""))</li>
+</ol>
+<Notice Kind="warning">@T("staff.inviteOnce")</Notice>
+
+@code {
+    [Parameter, EditorRequired] public StaffInviteDto Invite { get; set; } = default!;
+}

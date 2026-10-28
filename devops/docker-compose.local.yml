@@ -1,0 +1,25 @@
+# Local testing override — production images and topology on your machine:
+#   docker compose --project-directory . -f devops/docker-compose.yml -f devops/docker-compose.local.yml up -d --build
+#
+# Then open http://localhost:8096. For day-to-day development keep using docker/docker-compose.yml
+# (Postgres on :5434) + `dotnet run --project src/api/Restaurant.Api` + `dotnet watch --project src/clients/Restaurant.Web`.
+
+services:
+  rp-postgres:
+    # Published on 5435 (the dev stack in docker/ uses 5434) so migrations
+    # and DB tools can reach it from the host.
+    ports:
+      - '127.0.0.1:5435:5432'
+
+  rp-api:
+    build:
+      pull: false
+    environment:
+      FileStorage__PublicBaseUrl: http://localhost:${WEB_PORT:-8096}/uploads
+
+  rp-web:
+    build:
+      pull: false
+    volumes:
+      # Replaces the VM's /root/downloads/restaurant (Docker Desktop can't mount that path).
+      - ${DOWNLOADS_DIR:-./installer/output}:/srv/downloads:ro

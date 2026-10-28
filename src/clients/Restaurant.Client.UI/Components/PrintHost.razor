@@ -1,0 +1,19 @@
+@implements IDisposable
+@inject Restaurant.Client.UI.Services.PrintService Printer
+@* The document being printed, rendered off-screen where the print helpers can find it. *@
+<div id="@Restaurant.Client.UI.Services.PrintService.ElementId" class="rp-print-area" aria-hidden="true">
+    @if (Printer.Document is { } document)
+    {
+        <ReceiptView Document="document" />
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Printer.DocumentChanged += Changed;
+
+    private void Changed() => InvokeAsync(StateHasChanged);
+
+    protected override void OnAfterRender(bool firstRender) => Printer.Rendered();
+
+    public void Dispose() => Printer.DocumentChanged -= Changed;
+}

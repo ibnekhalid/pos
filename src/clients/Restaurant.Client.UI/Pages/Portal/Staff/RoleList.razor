@@ -1,0 +1,50 @@
+@page "/app/staff/roles"
+@inherits PageBase
+
+<PageTitle>@T("roles.title")</PageTitle>
+<PageHeader Title="@T("roles.title")" Subtitle="@T("roles.summary")" BackHref="app/staff">
+    <Actions>
+        @if (User.Can(Permissions.Staff.ManageRoles))
+        {
+            <a class="rp-btn" href="app/staff/roles/new"><Icon Name="add" /> @T("roles.add")</a>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!User.Can(Permissions.Staff.View))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <div class="rp-list">
+        @foreach (var role in _roles)
+        {
+            <a class="rp-list-item" href="@($"app/staff/roles/{role.Id}")">
+                <Icon Name="shield-checkmark-outline" Size="24" />
+                <span class="rp-grow">
+                    <span class="rp-strong">@role.Name</span>
+                    <span class="rp-hint">@role.Description</span>
+                </span>
+                @if (role.FullAccess) { <Badge Kind="brand">@T("roles.fullAccess")</Badge> }
+                else { <Badge>@T("roles.permissionCount", ("n", role.Permissions.Count.ToString()))</Badge> }
+                @if (role.IsSystem) { <Badge>@T("roles.builtIn")</Badge> }
+                <Icon Name="chevron-forward" />
+            </a>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<RoleDto> _roles = [];
+
+    protected override async Task LoadAsync()
+    {
+        if (User.Can(Permissions.Staff.View)) _roles = await Api.GetRolesAsync();
+    }
+}

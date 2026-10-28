@@ -1,0 +1,28 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject Localizer L
+@inject BrandingState Brand
+
+@* Sign-in / sign-up screens: centered card, language switch in the corner. *@
+<div class="rp-auth" dir="@L.Dir" style="@Brand.CssVariables">
+    <div class="rp-auth-lang">
+        <button class="rp-link" @onclick="ToggleLanguageAsync">@(L.Language == "en" ? "اردو" : "English")</button>
+    </div>
+    <div class="rp-auth-card">
+        <div class="rp-auth-brand">
+            <span class="rp-brand-mark">R</span>
+            <span>@L["app.name"]</span>
+        </div>
+        @Body
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized() => L.Changed += Refresh;
+
+    private Task ToggleLanguageAsync() => L.SetLanguageAsync(L.Language == "en" ? "ur" : "en");
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => L.Changed -= Refresh;
+}

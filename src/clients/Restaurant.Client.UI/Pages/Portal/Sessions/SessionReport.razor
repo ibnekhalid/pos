@@ -1,0 +1,100 @@
+@page "/app/sessions/{SessionId:guid}"
+@inherits PageBase
+@inject UiInterop Ui
+@using Restaurant.Contracts.Sessions
+
+<PageTitle>@T("day.report")</PageTitle>
+<PageHeader Title="@(_report is null ? T("day.report") : T("day.businessDate", ("date", _report.Session.BusinessDate.ToString("dddd d MMM yyyy"))))" BackHref="app/sessions"
+            Subtitle="@(_report is null ? null : $"{Format.DateTime(_report.Session.StartedAt)} → {(_report.Session.ClosedAt is null ? T("sessionStatus.Open") : Format.DateTime(_report.Session.ClosedAt))}")">
+    <Actions>
+        @if (_report is not null) { <RpButton Variant="ghost" Icon="print-outline" OnClick="() => Ui.PrintElementAsync(PrintId, 80)">@T("reports.print80")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (_report is not null)
+{
+    @* The closing report on 80 mm paper (browser print dialog: pick the receipt printer). *@
+    <div id="@PrintId" class="rp-print-area" aria-hidden="true">
+        <div class="rp-receipt rp-session-print">
+            <div class="rp-strong" style="text-align:center">@Brand.DisplayName</div>
+            <div style="text-align:center">@T("day.report") · @_report.Session.BusinessDate.ToString("ddd d MMM yyyy")</div>
+            <div style="text-align:center">@Format.DateTime(_report.Session.StartedAt) → @(_report.Session.ClosedAt is null ? T("sessionStatus.Open") : Format.DateTime(_report.Session.ClosedAt))</div>
+            @{ var s = _report.Summary; }
+            <h3>@T("day.summary")</h3>
+            <table>
+                <tr><td>@T("day.orders")</td><td class="rp-right">@s.OrderCount</td></tr>
+                <tr><td>@T("day.grossSales")</td><td class="rp-right">@Money(s.GrossSales)</td></tr>
+                <tr><td>− @T("day.discounts")</td><td class="rp-right">@Money(s.Discounts)</td></tr>
+                <tr class="rp-strong"><td>@T("day.netSales")</td><td class="rp-right">@Money(s.NetSales)</td></tr>
+                <tr><td>+ @T("receipt.serviceCharge")</td><td class="rp-right">@Money(s.ServiceCharge)</td></tr>
+                <tr><td>+ @T("day.tax")</td><td class="rp-right">@Money(s.Tax)</td></tr>
+                <tr><td>± @T("receipt.rounding")</td><td class="rp-right">@Money(s.Rounding)</td></tr>
+                <tr class="rp-strong"><td>@T("day.billed")</td><td class="rp-right">@Money(s.TotalBilled)</td></tr>
+                <tr><td>@T("day.voids", ("n", s.CancelledOrVoidedCount.ToString()))</td><td class="rp-right">@Money(s.VoidedValue)</td></tr>
+            </table>
+            <h3>@T("day.paymentMethod")</h3>
+            <table>
+                @foreach (var m in s.Payments) { <tr><td>@m.Method × @m.Count</td><td class="rp-right">@Money(m.Collected)</td></tr> }
+                <tr class="rp-strong"><td>@T("day.collected")</td><td class="rp-right">@Money(s.Collected)</td></tr>
+                <tr><td>@T("receipt.refunded")</td><td class="rp-right">@Money(s.Refunds)</td></tr>
+            </table>
+            @foreach (var r in s.Cash)
+            {
+                <h3>@r.RegisterName</h3>
+                <table>
+                    <tr><td>@T("day.openingCash")</td><td class="rp-right">@Money(r.OpeningCash)</td></tr>
+                    <tr><td>+ @T("day.cashSales")</td><td class="rp-right">@Money(r.CashSales)</td></tr>
+                    <tr><td>+ @T("cashType.CashIn")</td><td class="rp-right">@Money(r.CashIn)</td></tr>
+                    <tr><td>− @T("cashType.CashRefund")</td><td class="rp-right">@Money(r.CashRefunds)</td></tr>
+                    <tr><td>− @T("cashType.PaidOut")</td><td class="rp-right">@Money(r.PaidOuts)</td></tr>
+                    <tr class="rp-strong"><td>= @T("day.expectedCash")</td><td class="rp-right">@Money(r.ExpectedCash)</td></tr>
+                    <tr><td>@T("day.counted")</td><td class="rp-right">@(r.ActualCash is { } a ? Money(a) : "—")</td></tr>
+                    <tr class="rp-strong"><td>@T("day.difference")</td><td class="rp-right">@(r.Difference is { } d ? Money(d) : "—")</td></tr>
+                </table>
+            }
+            <h3></h3>
+            <div>@T("reports.printedAt", ("time", Format.DateTime(DateTimeOffset.Now)))</div>
+        </div>
+    </div>
+}
+
+@if (Loading)
+{
+    <Loading />
+}
+else if (_report is null)
+{
+    <Notice Kind="danger">@Error</Notice>
+}
+else
+{
+    <SessionSummary Summary="_report.Summary" />
+    <section class="rp-panel">
+        <h2>@T("day.cashByRegister")</h2>
+        <table class="rp-table">
+            <thead><tr><th>@T("registers.title")</th><th class="rp-right">@T("day.openingCash")</th><th class="rp-right">@T("day.cashSales")</th><th class="rp-right">@T("cashType.CashIn")</th><th class="rp-right">@T("cashType.CashRefund")</th><th class="rp-right">@T("cashType.PaidOut")</th><th class="rp-right">@T("day.expectedCash")</th><th class="rp-right">@T("day.counted")</th><th class="rp-right">@T("day.difference")</th></tr></thead>
+            <tbody>
+                @foreach (var r in _report.Summary.Cash)
+                {
+                    var register = _report.Session.Registers.FirstOrDefault(x => x.Id == r.RegisterSessionId);
+                    <tr>
+                        <td>@r.RegisterName @if (register?.DifferenceReason is not null) { <div class="rp-hint">@register.DifferenceReason</div> }</td>
+                        <td class="rp-right">@Money(r.OpeningCash)</td><td class="rp-right">@Money(r.CashSales)</td><td class="rp-right">@Money(r.CashIn)</td>
+                        <td class="rp-right">@Money(r.CashRefunds)</td><td class="rp-right">@Money(r.PaidOuts)</td><td class="rp-right rp-strong">@Money(r.ExpectedCash)</td>
+                        <td class="rp-right">@(r.ActualCash is { } a ? Money(a) : "—")</td><td class="rp-right">@(r.Difference is { } d ? Money(d) : "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (_report.Session.Notes is not null) { <p class="rp-mt">@_report.Session.Notes</p> }
+    </section>
+}
+
+@code {
+    private const string PrintId = "rp-session-print";
+
+    [Parameter] public Guid SessionId { get; set; }
+    private ClosedSessionDto? _report;
+
+    protected override async Task LoadAsync() => _report = await Api.GetSessionReportAsync(SessionId);
+}

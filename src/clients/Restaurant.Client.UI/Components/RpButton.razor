@@ -1,0 +1,28 @@
+@* Large, touch-friendly button (48px high by default — counter screens are used with fingers). *@
+<button type="@Type" class="rp-btn @Variant @(Block ? "block" : "") @(Small ? "small" : "") @Class"
+        disabled="@(Disabled || Loading)" @onclick="OnClick" title="@Title">
+    @if (Loading)
+    {
+        <span class="rp-spinner small"></span>
+    }
+    else if (Icon is not null)
+    {
+        <Icon Name="@Icon" Size="@(Small ? 16 : 19)" />
+    }
+    @ChildContent
+</button>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    /// <summary>primary, secondary, ghost or danger.</summary>
+    [Parameter] public string Variant { get; set; } = "primary";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Block { get; set; }
+    [Parameter] public bool Small { get; set; }
+    [Parameter] public string Type { get; set; } = "button";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+}

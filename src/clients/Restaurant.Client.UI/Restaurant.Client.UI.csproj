@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!-- Every screen and component, shared by Restaurant.Web and Restaurant.Desktop, plus the
+       rp- CSS design system in wwwroot (served as _content/Restaurant.Client.UI/restaurant.css). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Restaurant.Client.Core\Restaurant.Client.Core.csproj" />
+  </ItemGroup>
+
+</Project>

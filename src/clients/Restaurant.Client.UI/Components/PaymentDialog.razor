@@ -1,0 +1,176 @@
+@inherits PageBase
+@using Restaurant.Contracts.Orders
+@inject Restaurant.Client.UI.Services.PrintService Printer
+@inject IKeyValueStore Store
+@* Takes one or more payments (split tender) until the bill is settled, then offers the receipt.
+   Each attempt has its own ClientRequestId, so a retried tap never charges twice. *@
+<Dialog Open="Open" OpenChanged="OpenChanged" Title="@T("pay.title", ("number", Order?.OrderNumber ?? ""))" Busy="Busy">
+    <ChildContent>
+        @if (Order is null || _methods is null)
+        {
+            <Loading />
+        }
+        else if (Order.Balance <= 0)
+        {
+            <div class="rp-center rp-pay-done">
+                <Icon Name="checkmark-circle" Size="56" Color="var(--rp-success)" />
+                <h2>@T("pay.paid")</h2>
+                @if (_lastChange is > 0)
+                {
+                    <div class="rp-pay-change">@T("pay.giveChange") <strong>@Money(_lastChange.Value)</strong></div>
+                }
+                @if (_printError is not null) { <Notice Kind="warning" Class="rp-mt">@_printError</Notice> }
+                <CheckBox Label="@T("pay.autoPrint")" Value="_autoPrint" ValueChanged="SetAutoPrintAsync" />
+            </div>
+        }
+        else
+        {
+            @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+            <div class="rp-pay-sum">
+                <div><span>@T("receipt.total")</span><strong>@Money(Order.Total)</strong></div>
+                <div><span>@T("pay.paidSoFar")</span><strong>@Money(Order.Paid)</strong></div>
+                <div class="due"><span>@T("pay.due")</span><strong>@Money(Order.Balance)</strong></div>
+            </div>
+            <div class="rp-pay-methods">
+                @foreach (var method in _methods)
+                {
+                    <button type="button" class="@(method.Id == _methodId ? "active" : "")" @onclick="() => SelectMethod(method)">@method.Name</button>
+                }
+            </div>
+            <TextField Label="@T("pay.amount")" @bind-Value="_amount" InputMode="decimal" Dir="ltr" Error="@FieldError("Amount")" />
+            @if (Selected?.IsCash == true)
+            {
+                <TextField Label="@T("pay.tendered")" @bind-Value="_tendered" InputMode="decimal" Dir="ltr" Error="@FieldError("Tendered")" />
+                <div class="rp-row rp-wrap rp-mb">
+                    @foreach (var quick in QuickAmounts)
+                    {
+                        <RpButton Small Variant="secondary" OnClick="() => _tendered = Format.Number(quick)">@Money(quick)</RpButton>
+                    }
+                </div>
+                @if (Change is > 0) { <div class="rp-pay-change">@T("receipt.change"): <strong>@Money(Change.Value)</strong></div> }
+            }
+            @if (Selected?.RequiresReference == true)
+            {
+                <TextField Label="@T("pay.reference")" @bind-Value="_reference" Dir="ltr" Error="@FieldError("Reference")" />
+            }
+        }
+    </ChildContent>
+    <Footer>
+        @if (Order is not null && Order.Balance <= 0)
+        {
+            <RpButton Variant="secondary" Icon="print-outline" OnClick="PrintAsync">@T("pay.printReceipt")</RpButton>
+            <RpButton OnClick="DoneAsync">@T("common.done")</RpButton>
+        }
+        else
+        {
+            <RpButton Variant="ghost" OnClick="() => OpenChanged.InvokeAsync(false)">@T("common.cancel")</RpButton>
+            <RpButton Loading="Busy" Icon="cash-outline" OnClick="PayAsync">@T("pay.take")</RpButton>
+        }
+    </Footer>
+</Dialog>
+
+@code {
+    private const string AutoPrintKey = "rp.pos.auto-print";
+    private IReadOnlyList<Restaurant.Contracts.Tenancy.PaymentMethodDto>? _methods;
+    private Guid? _methodId;
+    private string? _amount, _tendered, _reference, _printError;
+    private decimal? _lastChange;
+    private Guid _requestId = Guid.NewGuid();
+    private bool _autoPrint = true;
+    private bool _anyCash;
+    private Guid? _preparedFor;
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public OrderDto? Order { get; set; }
+    [Parameter] public EventCallback<OrderDto> OrderChanged { get; set; }
+    /// <summary>Settled and closed.</summary>
+    [Parameter] public EventCallback OnDone { get; set; }
+
+    private Restaurant.Contracts.Tenancy.PaymentMethodDto? Selected => _methods?.FirstOrDefault(m => m.Id == _methodId);
+    private decimal? Change => Format.ParseNumber(_tendered) - Format.ParseNumber(_amount);
+
+    private IEnumerable<decimal> QuickAmounts
+    {
+        get
+        {
+            var due = Format.ParseNumber(_amount) ?? Order?.Balance ?? 0;
+            return new[] { due, Math.Ceiling(due / 100) * 100, Math.Ceiling(due / 500) * 500, Math.Ceiling(due / 1000) * 1000, 5000m }
+                .Where(a => a >= due && a > 0).Distinct().Take(5);
+        }
+    }
+
+    protected override async Task LoadAsync()
+    {
+        _methods = (await Api.GetPaymentMethodsAsync()).Where(m => m.IsActive).ToList();
+        _methodId ??= _methods.FirstOrDefault(m => m.IsCash)?.Id ?? _methods.FirstOrDefault()?.Id;
+        try { _autoPrint = await Store.GetAsync(AutoPrintKey) != "false"; } catch { /* default */ }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Prepare the form whenever the dialog opens for an order.
+        if (Open && Order is not null && _preparedFor != Order.Id)
+        {
+            _preparedFor = Order.Id;
+            _methodId ??= _methods?.FirstOrDefault(m => m.IsCash)?.Id ?? _methods?.FirstOrDefault()?.Id;
+            _amount = Format.Number(Order.Balance);
+            _tendered = null;
+            _reference = null;
+            _lastChange = null;
+            _anyCash = false;
+            _printError = null;
+            Error = null;
+        }
+        if (!Open) _preparedFor = null;
+    }
+
+    private void SelectMethod(Restaurant.Contracts.Tenancy.PaymentMethodDto method)
+    {
+        _methodId = method.Id;
+        _tendered = null;
+    }
+
+    private async Task PayAsync()
+    {
+        if (Order is null || _methodId is null) return;
+        var amount = Format.ParseNumber(_amount) ?? 0;
+        var tendered = Selected?.IsCash == true ? Format.ParseNumber(_tendered) ?? amount : (decimal?)null;
+        var request = new TakePaymentRequest(_requestId, _methodId.Value, amount, tendered, string.IsNullOrWhiteSpace(_reference) ? null : _reference.Trim());
+
+        OrderDto? updated = null;
+        if (await RunAsync(async () => updated = await Api.TakePaymentAsync(Order.Id, request)))
+        {
+            _requestId = Guid.NewGuid();
+            _lastChange = Selected?.IsCash == true ? tendered - amount : null;
+            _anyCash |= Selected?.IsCash == true;
+            await OrderChanged.InvokeAsync(updated!);
+            _amount = Format.Number(updated!.Balance);
+            _tendered = null;
+            _reference = null;
+            if (updated.Balance <= 0 && _autoPrint)
+            {
+                await PrintAsync();
+            }
+        }
+    }
+
+    private async Task PrintAsync()
+    {
+        if (Order is null) return;
+        _printError = await Printer.PrintAsync(Order.Id, PrintKind.Receipt, openDrawer: _anyCash);
+        _anyCash = false; // the drawer opens once
+    }
+
+    private async Task SetAutoPrintAsync(bool value)
+    {
+        _autoPrint = value;
+        try { await Store.SetAsync(AutoPrintKey, value ? "true" : "false"); } catch { /* not remembered */ }
+    }
+
+    private async Task DoneAsync()
+    {
+        await OpenChanged.InvokeAsync(false);
+        await OnDone.InvokeAsync();
+    }
+}

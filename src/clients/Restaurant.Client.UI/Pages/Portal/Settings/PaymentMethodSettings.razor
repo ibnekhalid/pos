@@ -1,0 +1,94 @@
+@page "/app/settings/payment-methods"
+@inherits PageBase
+
+<PageTitle>@T("paymentMethods.title")</PageTitle>
+<PageHeader Title="@T("paymentMethods.title")" Subtitle="@T("paymentMethods.summary")" BackHref="app/settings">
+    <Actions>
+        @if (CanEdit) { <RpButton Icon="add" OnClick="() => Open(null)">@T("paymentMethods.add")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && !_open) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <Notice Class="rp-mb">@T("paymentMethods.help")</Notice>
+    <table class="rp-table rp-panel">
+        <thead><tr><th>@T("paymentMethods.name")</th><th>@T("paymentMethods.kind")</th><th>@T("paymentMethods.reference")</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var method in _methods)
+            {
+                <tr class="@(method.IsActive ? "" : "rp-dim")">
+                    <td>
+                        @method.Name
+                        @if (method.IsCash) { <Badge Kind="success">@T("paymentMethods.drawer")</Badge> }
+                        @if (!method.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                    </td>
+                    <td>@T($"paymentKind.{method.Kind}")</td>
+                    <td>@(method.RequiresReference ? T("common.required") : "—")</td>
+                    <td class="rp-right">
+                        @if (CanEdit) { <button class="rp-icon-btn" @onclick="() => Open(method)" aria-label="@T("common.edit")"><Icon Name="create-outline" /></button> }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<Dialog @bind-Open="_open" Title="@(_editing is null ? T("paymentMethods.add") : T("paymentMethods.edit"))" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <TextField Label="@T("paymentMethods.name")" @bind-Value="_name" Error="@FieldError("Name")" />
+        <div class="rp-grid-2">
+            <SelectField Label="@T("paymentMethods.kind")" @bind-Value="_kind" Options="KindOptions" />
+            <TextField Label="@T("paymentMethods.order")" @bind-Value="_order" InputMode="numeric" Dir="ltr" />
+        </div>
+        <CheckBox Label="@T("paymentMethods.requiresReference")" Hint="@T("paymentMethods.referenceHint")" @bind-Value="_reference" />
+        <CheckBox Label="@T("common.active")" @bind-Value="_active" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _open = false">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private IReadOnlyList<PaymentMethodDto> _methods = [];
+    private bool _open;
+    private PaymentMethodDto? _editing;
+    private string? _name, _kind, _order;
+    private bool _reference, _active;
+
+    private bool CanEdit => User.Can(Permissions.Tenant.ManageSettings);
+    private IEnumerable<(string, string)> KindOptions => Enum.GetValues<PaymentMethodKind>().Select(v => (v.ToString(), T($"paymentKind.{v}")));
+
+    protected override async Task LoadAsync() => _methods = await Api.GetPaymentMethodsAsync();
+
+    private void Open(PaymentMethodDto? method)
+    {
+        Error = null;
+        _editing = method;
+        _name = method?.Name;
+        _kind = (method?.Kind ?? PaymentMethodKind.Other).ToString();
+        _order = (method?.SortOrder ?? _methods.Count).ToString();
+        _reference = method?.RequiresReference ?? false;
+        _active = method?.IsActive ?? true;
+        _open = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = new SavePaymentMethodRequest(_name ?? "", Enum.Parse<PaymentMethodKind>(_kind!), _reference,
+            int.TryParse(_order, out var order) ? order : 0, _active);
+        var ok = await RunAsync(async () =>
+        {
+            if (_editing is null) await Api.CreatePaymentMethodAsync(request);
+            else await Api.UpdatePaymentMethodAsync(_editing.Id, request);
+            _methods = await Api.GetPaymentMethodsAsync();
+        }, T("common.saved"));
+        if (ok) _open = false;
+    }
+}

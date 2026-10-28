@@ -1,0 +1,127 @@
+@page "/app/staff/roles/new"
+@page "/app/staff/roles/{RoleId:guid}"
+@inherits PageBase
+
+<PageTitle>@Title</PageTitle>
+<PageHeader Title="@Title" BackHref="app/staff/roles" />
+
+@if (!User.Can(Permissions.Staff.View))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (_role?.FullAccess == true)
+    {
+        <Notice Class="rp-mb">@T("roles.ownerLocked")</Notice>
+    }
+    else if (CanEdit && !User.IsOwner)
+    {
+        <Notice Class="rp-mb">@T("roles.onlyYours")</Notice>
+    }
+
+    <section class="rp-panel">
+        <div class="rp-grid-2">
+            <TextField Label="@T("roles.name")" @bind-Value="_name" Disabled="!CanEdit" Error="@FieldError("Name")" />
+            <TextField Label="@T("roles.description")" @bind-Value="_description" Disabled="!CanEdit" />
+        </div>
+    </section>
+
+    @foreach (var group in _catalog.GroupBy(p => p.Group))
+    {
+        <section class="rp-panel">
+            <h2>@T($"permissionGroup.{group.Key}")</h2>
+            <div class="rp-choice-grid">
+                @foreach (var permission in group)
+                {
+                    <CheckBox Label="@PermissionLabel(permission.Name)" Hint="@permission.Name"
+                              Value="_role?.FullAccess == true || _permissions.Contains(permission.Name)"
+                              ValueChanged="on => Toggle(permission.Name, on)"
+                              Disabled="@(!CanEdit || (!User.IsOwner && !User.Can(permission.Name)))" />
+                }
+            </div>
+        </section>
+    }
+
+    @if (CanEdit)
+    {
+        <div class="rp-row">
+            <RpButton Loading="Busy" Icon="checkmark" OnClick="SaveAsync">@T("common.save")</RpButton>
+            @if (_role is { IsSystem: false })
+            {
+                <RpButton Variant="danger" Icon="trash-outline" OnClick="() => _confirmDelete = true">@T("common.delete")</RpButton>
+            }
+        </div>
+    }
+}
+
+<ConfirmDialog @bind-Open="_confirmDelete" Title="@T("roles.deleteTitle")" Message="@T("roles.deleteText", ("name", _role?.Name ?? ""))"
+               ConfirmText="@T("common.delete")" Destructive OnConfirm="DeleteAsync" />
+
+@code {
+    [Parameter] public Guid? RoleId { get; set; }
+
+    private RoleDto? _role;
+    private IReadOnlyList<PermissionDto> _catalog = [];
+    private HashSet<string> _permissions = [];
+    private string? _name, _description;
+    private bool _confirmDelete;
+
+    private string Title => RoleId is null ? T("roles.add") : _role?.Name ?? T("roles.title");
+    private bool CanEdit => User.Can(Permissions.Staff.ManageRoles) && _role?.FullAccess != true;
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Staff.View)) return;
+        _catalog = await Api.GetPermissionsAsync();
+        if (RoleId is { } id)
+        {
+            _role = (await Api.GetRolesAsync()).FirstOrDefault(r => r.Id == id);
+            if (_role is null)
+            {
+                Error = T("common.notFound");
+                return;
+            }
+            _name = _role.Name;
+            _description = _role.Description;
+            _permissions = _role.Permissions.ToHashSet();
+        }
+    }
+
+    /// <summary>"orders.create" → its translation, or the code itself.</summary>
+    private string PermissionLabel(string name)
+    {
+        var key = "permission." + name.Replace('.', '_');
+        var text = T(key);
+        return text == key ? name : text;
+    }
+
+    private void Toggle(string permission, bool on)
+    {
+        if (on) _permissions.Add(permission); else _permissions.Remove(permission);
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = new SaveRoleRequest(_name ?? "", string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(), _permissions.ToList());
+        RoleDto? saved = null;
+        if (await RunAsync(async () => saved = RoleId is { } id ? await Api.UpdateRoleAsync(id, request) : await Api.CreateRoleAsync(request)))
+        {
+            await User.LoadAsync();   // the caller's own permissions may have changed
+            Nav.NavigateTo("app/staff/roles");
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (await RunAsync(() => Api.DeleteRoleAsync(RoleId!.Value)))
+        {
+            Nav.NavigateTo("app/staff/roles");
+        }
+    }
+}

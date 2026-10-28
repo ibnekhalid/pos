@@ -1,0 +1,10 @@
+<Project>
+  <!-- Shared by every project. Target frameworks stay in each .csproj (the desktop app multi-targets). -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Company>Restaurant POS</Company>
+    <Product>Restaurant POS</Product>
+  </PropertyGroup>
+</Project>

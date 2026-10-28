@@ -1,0 +1,52 @@
+@page "/app/select-restaurant"
+@layout AuthLayout
+@inherits PageBase
+@inject SessionStore Session
+
+<PageTitle>@T("selectRestaurant.title")</PageTitle>
+
+<h1>@T("selectRestaurant.title")</h1>
+<p class="rp-muted">@T("selectRestaurant.subtitle")</p>
+
+@if (Error is not null)
+{
+    <Notice Kind="danger" Class="rp-mb">@Error</Notice>
+}
+
+<div class="rp-list">
+    @foreach (var tenant in Session.Current?.Tenants ?? [])
+    {
+        <button class="rp-list-item" disabled="@Busy" @onclick="() => SelectAsync(tenant.TenantId)">
+            <span class="rp-avatar">@Format.Initials(tenant.TenantName)</span>
+            <span class="rp-grow">
+                <span class="rp-strong">@tenant.TenantName</span>
+                <span class="rp-hint">@string.Join(", ", tenant.RoleNames)</span>
+            </span>
+            @if (tenant.TenantId == Session.Current?.TenantId) { <Badge Kind="brand">@T("selectRestaurant.current")</Badge> }
+            <Icon Name="chevron-forward" />
+        </button>
+    }
+</div>
+<RpButton Variant="ghost" Block Class="rp-mt" OnClick="SignOutAsync">@T("nav.signOut")</RpButton>
+
+@code {
+    protected override Task LoadAsync()
+    {
+        if (Session.Current is null) Nav.NavigateTo("app/login", replace: true);
+        return Task.CompletedTask;
+    }
+
+    private async Task SelectAsync(Guid tenantId)
+    {
+        if (await RunAsync(() => Api.SelectTenantAsync(tenantId)))
+        {
+            Nav.NavigateTo("app");
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        await Api.LogoutAsync();
+        Nav.NavigateTo("app/login");
+    }
+}

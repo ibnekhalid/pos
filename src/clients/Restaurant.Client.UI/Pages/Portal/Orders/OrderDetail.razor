@@ -1,0 +1,251 @@
+@page "/app/orders/{OrderId:guid}"
+@inherits PageBase
+@using Restaurant.Contracts.Orders
+@inject PrintService Printer
+
+<PageTitle>@(_order?.OrderNumber ?? T("nav.orders"))</PageTitle>
+<PageHeader Title="@(_order is null ? T("nav.orders") : T("orders.orderNumber", ("number", _order.OrderNumber)))" BackHref="app/orders"
+            Subtitle="@(_order is null ? null : $"{T($"orderType.{_order.Type}")}{(_order.TableLabel is null ? "" : $" · {T("receipt.table")} {_order.TableLabel}")} · {Format.DateTime(_order.CreatedAt)} · {_order.CreatedByName}")" />
+
+@if (Loading)
+{
+    <Loading />
+}
+else if (_order is null)
+{
+    <Notice Kind="danger">@Error</Notice>
+}
+else
+{
+    var o = _order;
+    var open = o.Status is not (OrderStatus.Completed or OrderStatus.Cancelled or OrderStatus.Voided) && o.SessionOpen;
+    <div class="rp-row rp-wrap rp-mb"><OrderBadges Status="o.Status" Payment="o.PaymentStatus" /></div>
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+    @if (Error is not null && _dialog is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (!o.SessionOpen) { <Notice Class="rp-mb">@T("orders.dayClosed")</Notice> }
+    @if (o.VoidReason is not null) { <Notice Kind="warning" Class="rp-mb">@T("orders.reason"): @o.VoidReason</Notice> }
+    @if (o.CustomerName is not null || o.CustomerPhone is not null)
+    {
+        <p class="rp-muted rp-mb"><Icon Name="person-circle-outline" Size="16" /> @o.CustomerName <span dir="ltr">@o.CustomerPhone</span>
+            @if (o.CustomerId is not null && User.CanAny(Permissions.Customers.View, Permissions.Customers.Manage)) { <a class="rp-link" href="app/customers">@T("orders.customerProfile")</a> }</p>
+    }
+
+    <div class="rp-row rp-wrap rp-mb">
+        @if (open && User.Can(Permissions.Orders.Edit)) { <a class="rp-btn secondary" href="@($"app/pos?order={o.Id}")"><Icon Name="add" /> @T("orders.addItems")</a> }
+        @if (open && o.Lines.Any(l => l.Status == OrderLineStatus.Active && !l.SentToKitchen) && User.Can(Permissions.Orders.SendToKitchen))
+        {
+            <RpButton Variant="secondary" Icon="flame-outline" Loading="Busy" OnClick="SendAsync">@T("orders.sendRest")</RpButton>
+        }
+        @if (open && o.Balance > 0 && User.Can(Permissions.Payments.Take)) { <RpButton Icon="cash-outline" OnClick="() => _payOpen = true">@T("pos.pay")</RpButton> }
+        @if (open && o.Status is not (OrderStatus.Served or OrderStatus.Confirmed) && User.CanAny(Permissions.Orders.Edit, Permissions.Kitchen.Update))
+        {
+            <RpButton Variant="secondary" Icon="checkmark-done-outline" Loading="Busy" OnClick="ServedAsync">@T(o.Type == OrderType.DineIn ? "orders.markServed" : "orders.markHandedOver")</RpButton>
+        }
+        @if (User.Can(Permissions.Payments.PrintReceipts) && o.Status is not (OrderStatus.Cancelled or OrderStatus.Voided))
+        {
+            <RpButton Variant="secondary" Icon="print-outline" OnClick="PrintAsync">@T("orders.printReceipt")</RpButton>
+        }
+        @if (open && User.Can(Permissions.Orders.Edit)) { <RpButton Variant="ghost" Icon="pricetag-outline" OnClick="@(() => OpenDialog("discount"))">@T("orders.discount")</RpButton> }
+        @if (open && User.CanAny(Permissions.Orders.RequestCancel, Permissions.Orders.Void))
+        {
+            <RpButton Variant="ghost" Icon="close-circle-outline" OnClick="@(() => OpenDialog(o.Lines.Any(l => l.SentToKitchen) ? "void" : "cancel"))">
+                @T(o.Lines.Any(l => l.SentToKitchen) ? "orders.voidOrder" : "orders.cancelOrder")
+            </RpButton>
+        }
+    </div>
+
+    <div class="rp-grid-2 rp-align-start">
+        <section class="rp-panel">
+            <h2>@T("orders.items")</h2>
+            @foreach (var line in o.Lines)
+            {
+                <div class="rp-order-line @(line.Status == OrderLineStatus.Voided ? "voided" : "")">
+                    <div class="rp-grow">
+                        <div class="rp-strong">@line.Quantity × @line.Name@(line.VariantName is null ? "" : $" ({line.VariantName})")</div>
+                        @if (line.Modifiers.Count > 0) { <div class="rp-hint">+ @string.Join(", ", line.Modifiers)</div> }
+                        @if (line.Notes is not null) { <div class="rp-hint">» @line.Notes</div> }
+                        @if (line.VoidReason is not null) { <div class="rp-hint">@T("orders.voided"): @line.VoidReason</div> }
+                        @if (line.Status == OrderLineStatus.Active && !line.SentToKitchen) { <Badge>@T("orders.notSent")</Badge> }
+                        @if (line.DealApplicationId is { } dealId && o.Deals?.FirstOrDefault(d => d.ApplicationId == dealId) is { } deal) { <Badge Kind="info">@deal.Name</Badge> }
+                    </div>
+                    <span>@Money(line.LineTotal)</span>
+                    @if (open && line.Status == OrderLineStatus.Active && User.Can(Permissions.Orders.Edit))
+                    {
+                        <button class="rp-icon-btn" title="@T("orders.voidItem")" @onclick="() => VoidLine(line)"><Icon Name="trash-outline" /></button>
+                    }
+                </div>
+            }
+            <div class="rp-cart-totals">
+                <div class="rp-receipt-meta"><span>@T("receipt.subtotal")</span><span>@Money(o.Subtotal)</span></div>
+                @foreach (var deal in (o.Deals ?? []).Where(d => d.Discount > 0))
+                {
+                    <div class="rp-receipt-meta rp-deal-line"><span>@deal.Name@(deal.Quantity > 1 ? $" × {deal.Quantity}" : "")</span><span>-@Money(deal.Discount)</span></div>
+                }
+                @if (o.Discount - o.DealDiscount > 0) { <div class="rp-receipt-meta"><span>@T("receipt.discount") @(o.DiscountReason is null ? "" : $"({o.DiscountReason})")</span><span>-@Money(o.Discount - o.DealDiscount)</span></div> }
+                @if (o.ServiceCharge > 0) { <div class="rp-receipt-meta"><span>@T("receipt.serviceCharge") @Format.Number(o.ServiceChargePercent)%</span><span>@Money(o.ServiceCharge)</span></div> }
+                @foreach (var tax in o.Taxes) { <div class="rp-receipt-meta"><span>@tax.Name @Format.Number(tax.Percent)%</span><span>@Money(tax.Amount)</span></div> }
+                @if (o.Rounding != 0) { <div class="rp-receipt-meta"><span>@T("receipt.rounding")</span><span>@Money(o.Rounding)</span></div> }
+                <div class="rp-cart-total"><span>@T("receipt.total")</span><span>@Money(o.Total)</span></div>
+            </div>
+        </section>
+
+        <section class="rp-panel">
+            <h2>@T("orders.payments")</h2>
+            @if (o.Payments.Count == 0) { <p class="rp-muted">@T("orders.noPayments")</p> }
+            @foreach (var payment in o.Payments)
+            {
+                <div class="rp-order-line">
+                    <div class="rp-grow">
+                        <div class="rp-strong">@payment.Method @(payment.Reference is null ? "" : $"· {payment.Reference}")</div>
+                        <div class="rp-hint">@Format.DateTime(payment.At) · @payment.TakenByName @(payment.Change is > 0 ? $"· {T("receipt.change")} {Money(payment.Change.Value)}" : "")</div>
+                        @if (payment.Refunded > 0) { <div class="rp-hint">@T("receipt.refunded"): @Money(payment.Refunded)</div> }
+                    </div>
+                    <span>@Money(payment.Amount)</span>
+                    @if (payment.Refunded < payment.Amount && User.CanAny(Permissions.Payments.Take, Permissions.Payments.Refund))
+                    {
+                        <RpButton Small Variant="ghost" OnClick="() => Refund(payment)">@T("orders.refund")</RpButton>
+                    }
+                </div>
+            }
+            @foreach (var refund in o.Refunds)
+            {
+                <div class="rp-hint">@T("orders.refundLine", ("amount", Money(refund.Amount)), ("reason", refund.Reason), ("by", refund.ByName ?? ""))</div>
+            }
+            <div class="rp-cart-totals">
+                <div class="rp-receipt-meta"><span>@T("pay.paidSoFar")</span><span>@Money(o.Paid)</span></div>
+                @if (o.Refunded > 0) { <div class="rp-receipt-meta"><span>@T("receipt.refunded")</span><span>-@Money(o.Refunded)</span></div> }
+                <div class="rp-cart-total"><span>@T("pay.due")</span><span>@Money(o.Balance)</span></div>
+            </div>
+        </section>
+    </div>
+}
+
+<PaymentDialog @bind-Open="_payOpen" Order="_order" OrderChanged="o => _order = o" OnDone="ReloadAsync" />
+
+<Dialog Open="_dialog is not null" OpenChanged="open => { if (!open) _dialog = null; }" Title="@DialogTitle" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @switch (_dialog)
+        {
+            case "discount":
+                <div class="rp-grid-2">
+                    <TextField Label="@T("orders.discountPercent")" @bind-Value="_percent" InputMode="decimal" Dir="ltr" />
+                    <TextField Label="@T("orders.discountAmount")" @bind-Value="_amount" InputMode="decimal" Dir="ltr" />
+                </div>
+                <p class="rp-hint">@T("orders.discountHint")</p>
+                break;
+            case "refund":
+                <TextField Label="@T("pay.amount")" @bind-Value="_amount" InputMode="decimal" Dir="ltr" Error="@FieldError("Amount")" />
+                break;
+            case "voidLine":
+                <p>@_line?.Quantity × @_line?.Name</p>
+                @if (_line?.SentToKitchen == false) { <p class="rp-hint">@T("orders.removeUnsent")</p> }
+                break;
+        }
+        @if (NeedsReason)
+        {
+            <TextField Label="@T("orders.reason")" @bind-Value="_reason" MaxLength="300" Error="@FieldError("Reason")" />
+        }
+        @if (ApprovalPermission is { } permission)
+        {
+            <ApprovalPrompt Permission="@permission" @bind-Value="_approval" />
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _dialog = null">@T("common.cancel")</RpButton>
+        <RpButton Variant="@(_dialog is "discount" ? "primary" : "danger")" Loading="Busy" OnClick="ConfirmAsync">@T("common.confirm")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public Guid OrderId { get; set; }
+
+    private OrderDto? _order;
+    private bool _payOpen;
+    private string? _dialog;
+    private string? _reason, _percent, _amount;
+    private Approval? _approval;
+    private OrderLineDto? _line;
+    private PaymentDto? _payment;
+
+    private string DialogTitle => _dialog switch
+    {
+        "discount" => T("orders.discount"),
+        "refund" => T("orders.refund"),
+        "void" => T("orders.voidOrder"),
+        "cancel" => T("orders.cancelOrder"),
+        "voidLine" => T("orders.voidItem"),
+        _ => ""
+    };
+
+    private bool NeedsReason => _dialog is "refund" or "void" or "cancel" or "discount" || (_dialog == "voidLine" && _line?.SentToKitchen == true);
+
+    private string? ApprovalPermission => _dialog switch
+    {
+        "discount" => Permissions.Deals.ManualDiscount,
+        "refund" => Permissions.Payments.Refund,
+        "void" => Permissions.Orders.Void,
+        "voidLine" when _line?.SentToKitchen == true => Permissions.Orders.Void,
+        _ => null
+    };
+
+    protected override async Task LoadAsync() => _order = await Api.GetOrderAsync(OrderId);
+
+    private void OpenDialog(string dialog)
+    {
+        Error = null;
+        Success = null;
+        _reason = _percent = _amount = null;
+        _approval = null;
+        _dialog = dialog;
+    }
+
+    private void VoidLine(OrderLineDto line)
+    {
+        OpenDialog("voidLine");
+        _line = line;
+    }
+
+    private void Refund(PaymentDto payment)
+    {
+        OpenDialog("refund");
+        _payment = payment;
+        _amount = Format.Number(payment.Amount - payment.Refunded);
+    }
+
+    private async Task ConfirmAsync()
+    {
+        var ok = await RunAsync(async () =>
+        {
+            _order = _dialog switch
+            {
+                "discount" => await Api.SetDiscountAsync(OrderId, new SetDiscountRequest(
+                    string.IsNullOrWhiteSpace(_percent) && string.IsNullOrWhiteSpace(_amount) ? null
+                        : new ManualDiscountRequest(Format.ParseNumber(_percent), string.IsNullOrWhiteSpace(_percent) ? Format.ParseNumber(_amount) : null, _reason ?? ""),
+                    _approval)),
+                "refund" => await Api.RefundAsync(_payment!.Id, new RefundRequest(Guid.NewGuid(), Format.ParseNumber(_amount) ?? 0, _reason ?? "", _approval)),
+                "void" => await Api.VoidOrderAsync(OrderId, new ReasonRequest(_reason, _approval)),
+                "cancel" => await Api.CancelOrderAsync(OrderId, new ReasonRequest(_reason)),
+                "voidLine" => await Api.VoidLineAsync(OrderId, _line!.Id, new ReasonRequest(_reason, _approval)),
+                _ => _order
+            };
+        });
+        if (ok) _dialog = null;
+    }
+
+    private Task SendAsync() => RunAsync(async () =>
+    {
+        _order = await Api.SendToKitchenAsync(OrderId);
+        var printError = await Printer.PrintKitchenRoundAsync(OrderId);
+        if (printError is not null) Error = printError;
+    }, T("orders.sentToKitchen"));
+
+    private Task ServedAsync() => RunAsync(async () => _order = await Api.MarkServedAsync(OrderId));
+
+    private async Task PrintAsync()
+    {
+        var error = await Printer.PrintAsync(OrderId, PrintKind.Receipt);
+        Error = error;
+        Success = error is null ? T("orders.printed") : null;
+    }
+}

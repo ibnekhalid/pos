@@ -1,0 +1,138 @@
+# Production stack for Restaurant POS
+#
+# Traffic flow (Nginx Proxy Manager on the host terminates TLS):
+#   https://restaurant.dsnoopdoc.com      → rp-web (restaurant_web, host :8096)
+#                                             ├── Blazor WebAssembly PWA (public site + /app portal)
+#                                             └── /api, /uploads, /health → rp-api:8080
+#   https://api.restaurant.dsnoopdoc.com  → rp-api (restaurant_api, host 127.0.0.1:8097) — native apps
+#                                             └── rp-postgres:5432 (internal)
+#
+# Shares the VM with other stacks (e.g. dsnoopdoc) on the external `www_default` network, so:
+#   - service names are prefixed `rp-` — `postgres`/`api` would collide with other stacks' DNS names
+#     on www_default and could connect this API to someone else's database;
+#   - only rp-web joins www_default; rp-api and rp-postgres live on the private `restaurant_internal`
+#     network. rp-api publishes its port on 127.0.0.1 only (for NPM on the host); postgres none.
+# NPM proxy hosts: restaurant.dsnoopdoc.com → http://127.0.0.1:8096, api.restaurant.dsnoopdoc.com → http://127.0.0.1:8097
+#
+# Required in .env (written by .github/workflows/deploy.yml from repo secrets; see .env.example):
+#   POSTGRES_PASSWORD, JWT_SIGNING_KEY, PUBLIC_SITE_URL
+
+name: restaurant
+
+services:
+  rp-postgres:
+    image: postgres:16-alpine
+    container_name: restaurant_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: restaurant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: restaurant
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U restaurant -d restaurant']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+
+  rp-api:
+    image: restaurant-api
+    container_name: restaurant_api
+    build:
+      context: .
+      dockerfile: devops/Dockerfile
+      target: api
+      pull: true
+    restart: unless-stopped
+    depends_on:
+      rp-postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      POSTGRES_HOST: rp-postgres
+      POSTGRES_PORT: '5432'
+      ConnectionStrings__Default: Host=rp-postgres;Port=5432;Database=restaurant;Username=restaurant;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      # Migrations run as a release step in scripts/deploy-production.sh, before new containers start.
+      Database__MigrateOnStartup: 'false'
+      # Issuer/audience match existing tokens; changing them signs every user out.
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY must be set in .env}
+      Jwt__Issuer: RestaurantPos
+      Jwt__Audience: RestaurantPos.Clients
+      # Optional: the first platform administrator (created on start-up if missing).
+      PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-}
+      PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-}
+      FileStorage__RootPath: /app/uploads
+      FileStorage__PublicBaseUrl: ${PUBLIC_SITE_URL:?PUBLIC_SITE_URL must be set in .env}/uploads
+      # The browser origin CORS allows (the PWA calls /api on its own domain, so this is defence in depth).
+      Cors__AllowedOrigins__0: ${PUBLIC_SITE_URL}
+      # Only reachable through NPM (directly or via rp-web), so X-Forwarded-For is trustworthy
+      # (per-IP login rate limit).
+      ReverseProxy__TrustForwardedHeaders: 'true'
+      # Desktop update notice (GET /api/desktop-release); empty = no notice. Set by the repo variables
+      # RP_DESKTOP_LATEST_VERSION / RP_DESKTOP_DOWNLOAD_URL / RP_DESKTOP_MINIMUM_VERSION through .env.
+      DesktopRelease__LatestVersion: ${DESKTOP_LATEST_VERSION:-}
+      DesktopRelease__DownloadUrl: ${DESKTOP_DOWNLOAD_URL:-}
+      DesktopRelease__MinimumVersion: ${DESKTOP_MINIMUM_VERSION:-}
+    expose:
+      - '8080'
+    ports:
+      # Loopback only: Nginx Proxy Manager on the host serves it as the API domain for the native apps.
+      - '127.0.0.1:${API_PORT:-8097}:8080'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://127.0.0.1:8080/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+    volumes:
+      - uploads:/app/uploads
+      - logs:/app/logs
+    networks:
+      - internal
+
+  rp-web:
+    image: restaurant-web
+    container_name: restaurant_web
+    build:
+      context: .
+      dockerfile: devops/Dockerfile
+      target: web
+      pull: true
+    restart: unless-stopped
+    depends_on:
+      rp-api:
+        condition: service_healthy
+    ports:
+      # Nginx Proxy Manager on the host proxies public HTTPS → this port
+      - '${WEB_PORT:-8096}:80'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1/web-health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      # Desktop installers served at /downloads/. A host folder outside /root/restaurant (wiped on deploy).
+      - ${DOWNLOADS_DIR:-/root/downloads/restaurant}:/srv/downloads:ro
+    networks:
+      - internal
+      - www_default
+
+volumes:
+  postgres_data:
+    name: restaurant_postgres_data
+  uploads:
+    name: restaurant_uploads
+  logs:
+    name: restaurant_logs
+
+networks:
+  internal:
+    name: restaurant_internal
+  www_default:
+    external: true

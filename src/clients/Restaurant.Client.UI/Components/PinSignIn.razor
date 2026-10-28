@@ -1,0 +1,93 @@
+@inherits PageBase
+@inject DeviceRegistration Device
+@* Counter sign-in on a registered computer: pick your name, enter your PIN. *@
+@if (Loading)
+{
+    <Loading />
+}
+else if (_deviceGone)
+{
+    <Notice Kind="warning">@T("pin.deviceRevoked")</Notice>
+}
+else if (_staff.Count == 0)
+{
+    <Notice>@T("pin.noStaff")</Notice>
+}
+else if (_selected is null)
+{
+    <p class="rp-muted rp-center">@T("pin.whoAreYou")</p>
+    <div class="rp-staff-grid">
+        @foreach (var person in _staff)
+        {
+            <button type="button" class="rp-staff-tile" @onclick="() => Select(person)">
+                <span class="rp-avatar">@Format.Initials(person.DisplayName)</span>
+                <span class="rp-ellipsis">@person.DisplayName</span>
+            </button>
+        }
+    </div>
+}
+else
+{
+    <div class="rp-center">
+        <span class="rp-avatar large">@Format.Initials(_selected.DisplayName)</span>
+        <div class="rp-strong rp-mt-sm">@_selected.DisplayName</div>
+        <button type="button" class="rp-link" @onclick="() => _selected = null">@T("pin.notYou")</button>
+    </div>
+    @if (Error is not null)
+    {
+        <Notice Kind="danger" Class="rp-mt">@Error</Notice>
+    }
+    <PinPad @ref="_pad" Busy="Busy" OnSubmit="SignInAsync" />
+}
+
+@code {
+    private IReadOnlyList<DeviceStaffDto> _staff = [];
+    private DeviceStaffDto? _selected;
+    private PinPad? _pad;
+    private bool _deviceGone;
+
+    /// <summary>Called once the PIN session is in place.</summary>
+    [Parameter] public EventCallback OnSignedIn { get; set; }
+
+    protected override async Task LoadAsync()
+    {
+        var token = await Device.GetTokenAsync();
+        if (token is null)
+        {
+            _deviceGone = true;
+            return;
+        }
+        try
+        {
+            _staff = await Api.GetDeviceStaffAsync(token);
+        }
+        catch (ApiException ex) when (ex.Status == 401)
+        {
+            // Revoked on the server: this computer no longer has a valid registration.
+            await Device.ForgetAsync();
+            _deviceGone = true;
+        }
+    }
+
+    private void Select(DeviceStaffDto person)
+    {
+        _selected = person;
+        Error = null;
+    }
+
+    private async Task SignInAsync(string pin)
+    {
+        var token = await Device.GetTokenAsync();
+        if (token is null || _selected is null) return;
+
+        var ok = await RunAsync(() => Api.PinLoginAsync(token, _selected.MembershipId, pin));
+        if (ok)
+        {
+            await OnSignedIn.InvokeAsync();
+        }
+        else
+        {
+            _pad?.Clear();
+        }
+    }
+}

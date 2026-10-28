@@ -1,0 +1,39 @@
+## .NET
+bin/
+obj/
+*.user
+appsettings.Local.json
+
+## App signing (never commit keystores or certificates)
+*.pfx
+*.p12
+*.key
+
+## Env
+.env
+.env.*
+!.env.example
+
+## Logs
+logs/
+*.log
+
+## OS
+.DS_Store
+Thumbs.db
+
+## IDE
+.vs/
+.vscode/
+.idea/
+
+## Uploads (local dev file storage)
+src/api/Restaurant.Api/uploads/
+
+## Desktop installer builds (installer/build-installer.ps1)
+installer/output/
+installer/publish/
+installer/redist/
+
+## Claude Code worktrees (background tasks)
+.claude/worktrees/

@@ -1,0 +1,9 @@
+@* Ionicons glyph by name ("cash-outline", "receipt", ...). *@
+<span class="rp-icon @Class" style="font-size:@(Size)px;@(Color is null ? "" : $"color:{Color};")" aria-hidden="true">@Icons.Char(Name)</span>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public int Size { get; set; } = 18;
+    [Parameter] public string? Color { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

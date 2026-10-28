@@ -1,0 +1,28 @@
+# Development database only. The API and web app run on your machine with `dotnet run`/`dotnet watch`.
+#   docker compose -f docker/docker-compose.yml up -d
+# Published on 5434 so it never clashes with another project's Postgres on 5432.
+# The credentials are for this local container only; production gets its password from .env.
+
+name: restaurant-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: restaurant_dev_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: restaurant
+      POSTGRES_PASSWORD: restaurant_dev
+      POSTGRES_DB: restaurant
+    ports:
+      - '127.0.0.1:5434:5432'
+    volumes:
+      - restaurant_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U restaurant -d restaurant']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  restaurant_dev_data:

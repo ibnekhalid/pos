@@ -1,0 +1,90 @@
+@inherits RpComponent
+@* On-screen version of the branded receipt with fixed sample data — the Branding settings preview
+   (Tailor Book's approach). Phase 3 adds the real order receipt with the same layout. *@
+<div class="rp-receipt @(Paper == "58" ? "narrow" : "")" style="background:@(Branding?.BackgroundColor ?? "#fff");color:@(Branding?.TextColor ?? "#111827")" dir="@(Branding?.ReceiptLanguage == "ur" ? "rtl" : "ltr")">
+    <span class="rp-receipt-sample">@T("receipt.sample")</span>
+    <div class="rp-center">
+        @if (LogoUrl is not null)
+        {
+            <img src="@LogoUrl" alt="" class="rp-receipt-logo" />
+        }
+        <div class="rp-receipt-name" style="color:@Primary">@(Branding?.DisplayName ?? Brand.DisplayName)</div>
+        @if (!string.IsNullOrWhiteSpace(Branding?.Tagline))
+        {
+            <div class="rp-receipt-small" style="color:@(Branding?.SecondaryColor)">@Branding!.Tagline</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(Branding?.DisplayAddress))
+        {
+            <div class="rp-receipt-small">@Branding!.DisplayAddress</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(Branding?.DisplayPhone))
+        {
+            <div class="rp-receipt-small" dir="ltr">@Branding!.DisplayPhone</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(Ntn))
+        {
+            <div class="rp-receipt-small">NTN @Ntn</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(Branding?.ReceiptHeader))
+        {
+            <div class="rp-receipt-small rp-mt-sm">@Branding!.ReceiptHeader</div>
+        }
+    </div>
+    <div class="rp-receipt-rule" style="background:@Accent"></div>
+
+    <div class="rp-receipt-meta"><span>@T("receipt.order")</span><span>T-042 · @T("receipt.dineIn") · @T("receipt.table") 7</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.date")</span><span dir="ltr">28 Oct 2026, 8:41 PM</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.cashier")</span><span>Ayesha</span></div>
+    <div class="rp-receipt-dash"></div>
+
+    @foreach (var line in Lines)
+    {
+        <div class="rp-receipt-line">
+            <span>@line.Qty × @line.Name</span><span>@Money(line.Total)</span>
+        </div>
+        @if (line.Note is not null)
+        {
+            <div class="rp-receipt-note">@line.Note</div>
+        }
+    }
+    <div class="rp-receipt-dash"></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.subtotal")</span><span>@Money(Subtotal)</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.dealDiscount")</span><span>-@Money(Discount)</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.serviceCharge") 5%</span><span>@Money(Service)</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.tax") 16%</span><span>@Money(Tax)</span></div>
+    <div class="rp-receipt-total" style="border-color:@Accent"><span>@T("receipt.total")</span><span>@Money(Total)</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.cash")</span><span>@Money(5000)</span></div>
+    <div class="rp-receipt-meta"><span>@T("receipt.change")</span><span>@Money(5000 - Total)</span></div>
+
+    <div class="rp-receipt-footer" style="color:@(Branding?.SecondaryColor)">
+        @(Branding?.ReceiptFooter ?? Branding?.FooterText ?? T("receipt.thanks"))
+    </div>
+</div>
+
+@code {
+    /// <summary>The branding being edited (live preview); defaults to the saved branding.</summary>
+    [Parameter] public BrandingDto? Branding { get; set; }
+    [Parameter] public string? LogoUrl { get; set; }
+    [Parameter] public string? Ntn { get; set; }
+    /// <summary>"80" or "58" mm paper.</summary>
+    [Parameter] public string Paper { get; set; } = "80";
+
+    private string Primary => Branding?.PrimaryColor ?? Brand.Primary;
+    private string Accent => Branding?.AccentColor ?? Brand.Accent;
+
+    private sealed record Line(int Qty, string Name, decimal Total, string? Note = null);
+
+    /// <summary>Fixed sample data — never real customer data.</summary>
+    private static readonly Line[] Lines =
+    [
+        new(2, "Zinger Burger", 1100m, "+ Extra cheese"),
+        new(1, "Chicken Biryani (Full)", 850m),
+        new(2, "Mint Margarita", 600m)
+    ];
+
+    private const decimal Subtotal = 2550m;
+    private const decimal Discount = 150m;
+    private static decimal Service => Math.Round((Subtotal - Discount) * 0.05m);
+    private static decimal Tax => Math.Round((Subtotal - Discount) * 0.16m);
+    private static decimal Total => Subtotal - Discount + Service + Tax;
+}

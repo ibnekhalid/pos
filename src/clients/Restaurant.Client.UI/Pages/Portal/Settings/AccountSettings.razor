@@ -1,0 +1,102 @@
+@page "/app/settings/account"
+@inherits PageBase
+@inject DeviceRegistration Device
+@inject IWindowService Window
+
+<PageTitle>@T("account.title")</PageTitle>
+<PageHeader Title="@T("account.title")" BackHref="app/settings" />
+
+@if (Success is not null)
+{
+    <Notice Kind="success" Class="rp-mb">@Success</Notice>
+}
+@if (Error is not null)
+{
+    <Notice Kind="danger" Class="rp-mb">@Error</Notice>
+}
+
+<div class="rp-grid-2 rp-align-start">
+    <section class="rp-panel">
+        <h2>@T("account.profile")</h2>
+        <dl class="rp-dl">
+            <dt>@T("account.name")</dt><dd>@User.Me?.FullName</dd>
+            <dt>@T("register.email")</dt><dd dir="ltr">@(User.Me?.Email ?? "—")</dd>
+            <dt>@T("register.phone")</dt><dd dir="ltr">@(User.Me?.Phone ?? "—")</dd>
+            <dt>@T("account.roles")</dt><dd>@Roles</dd>
+        </dl>
+
+        <h2 class="rp-mt">@T("account.language")</h2>
+        <div class="rp-segmented">
+            <button class="@(L.Language == "en" ? "active" : "")" @onclick="@(() => L.SetLanguageAsync("en"))">English</button>
+            <button class="@(L.Language == "ur" ? "active" : "")" @onclick="@(() => L.SetLanguageAsync("ur"))">اردو</button>
+        </div>
+
+        @if (Device.Supported)
+        {
+            <h2 class="rp-mt">@T("account.thisComputer")</h2>
+            <SelectField Label="@T("account.autoLock")" Value="@Device.Prefs.AutoLockMinutes.ToString()" ValueChanged="SetAutoLockAsync"
+                         Options="AutoLockOptions" Hint="@(Device.IsRegistered ? null : T("account.autoLockNeedsDevice"))" />
+            @if (Window.SupportsFullScreen)
+            {
+                <RpButton Variant="secondary" Icon="expand-outline" OnClick="Window.ToggleFullScreenAsync">@T("nav.fullScreen") (F11)</RpButton>
+            }
+        }
+    </section>
+
+    <div>
+        <section class="rp-panel">
+            <h2>@T("account.pinTitle")</h2>
+            <p class="rp-muted">@(User.Me?.HasPin == true ? T("account.pinSet") : T("account.pinNotSet"))</p>
+            <TextField Label="@T("account.newPin")" @bind-Value="_pin" Type="password" InputMode="numeric" MaxLength="6" Dir="ltr"
+                       Hint="@T("account.pinRule")" Error="@FieldError("Pin")" />
+            <TextField Label="@T("account.currentPassword")" @bind-Value="_pinPassword" Type="password" AutoComplete="current-password"
+                       Error="@FieldError("CurrentPassword")" />
+            <RpButton Loading="Busy" OnClick="SavePinAsync">@T("account.savePin")</RpButton>
+        </section>
+
+        <section class="rp-panel">
+            <h2>@T("account.passwordTitle")</h2>
+            <TextField Label="@T("account.currentPassword")" @bind-Value="_current" Type="password" AutoComplete="current-password" />
+            <TextField Label="@T("reset.newPassword")" @bind-Value="_new" Type="password" AutoComplete="new-password" Hint="@T("auth.passwordRule")" />
+            <RpButton Loading="Busy" OnClick="ChangePasswordAsync">@T("account.changePassword")</RpButton>
+        </section>
+    </div>
+</div>
+
+@code {
+    private string? _pin, _pinPassword, _current, _new;
+
+    private string Roles => string.Join(", ", User.Me?.Tenants.FirstOrDefault(t => t.TenantId == User.Me.TenantId)?.RoleNames ?? []);
+
+    private IEnumerable<(string, string)> AutoLockOptions =>
+    [
+        ("0", T("account.autoLockNever")),
+        ("1", T("account.minutes", ("n", "1"))),
+        ("2", T("account.minutes", ("n", "2"))),
+        ("5", T("account.minutes", ("n", "5"))),
+        ("10", T("account.minutes", ("n", "10"))),
+        ("30", T("account.minutes", ("n", "30")))
+    ];
+
+    private async Task SavePinAsync()
+    {
+        if (await RunAsync(() => Api.SetPinAsync(new SetPinRequest(_pinPassword ?? "", _pin ?? "")), T("account.pinSaved")))
+        {
+            _pin = _pinPassword = null;
+            await User.LoadAsync();
+        }
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        if (await RunAsync(() => Api.ChangePasswordAsync(new ChangePasswordRequest(_current ?? "", _new ?? "")), T("account.passwordChanged")))
+        {
+            _current = _new = null;
+        }
+    }
+
+    private async Task SetAutoLockAsync(string? value)
+    {
+        if (int.TryParse(value, out var minutes)) await Device.SetPrefsAsync(Device.Prefs with { AutoLockMinutes = minutes });
+    }
+}

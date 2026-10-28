@@ -1,0 +1,20 @@
+@inherits RpComponent
+<Badge Kind="@StatusKind">@T($"orderStatus.{Status}")</Badge>
+@if (Payment is { } payment && Status is not (OrderStatus.Cancelled or OrderStatus.Voided))
+{
+    <Badge Kind="@(payment == PaymentStatus.Paid ? "success" : payment == PaymentStatus.Unpaid ? "warning" : "neutral")">@T($"paymentStatus.{payment}")</Badge>
+}
+
+@code {
+    [Parameter] public OrderStatus Status { get; set; }
+    [Parameter] public PaymentStatus? Payment { get; set; }
+
+    private string StatusKind => Status switch
+    {
+        OrderStatus.Completed => "success",
+        OrderStatus.Ready => "brand",
+        OrderStatus.Cancelled or OrderStatus.Voided => "danger",
+        OrderStatus.Confirmed => "neutral",
+        _ => "warning"
+    };
+}

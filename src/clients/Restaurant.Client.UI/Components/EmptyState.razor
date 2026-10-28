@@ -1,0 +1,16 @@
+<div class="rp-empty">
+    <Icon Name="@Icon" Size="40" />
+    <div class="rp-empty-title">@Title</div>
+    @if (Text is not null)
+    {
+        <p class="rp-muted">@Text</p>
+    }
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public string Icon { get; set; } = "file-tray-outline";
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Text { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

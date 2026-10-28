@@ -1,0 +1,11 @@
+/* Public site (/) only. The app itself uses _content/Restaurant.Client.UI/restaurant.css. */
+.boot { display: grid; place-items: center; min-height: 100vh; font: 600 1.4rem "Segoe UI", system-ui, sans-serif; color: #b91c1c; }
+
+.site { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+.site-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; }
+.site-brand { font-weight: 700; font-size: 1.2rem; color: var(--rp-text); text-decoration: none; }
+.site-cta { display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 8px; background: var(--rp-primary); color: #fff; font-weight: 600; text-decoration: none; }
+.site-hero { padding: 64px 0; max-width: 720px; }
+.site-hero h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.1; }
+.site-hero p { font-size: 1.15rem; color: var(--rp-muted); margin: 16px 0 28px; }
+.site-footer { padding: 32px 0; color: var(--rp-muted); border-top: 1px solid var(--rp-border); }

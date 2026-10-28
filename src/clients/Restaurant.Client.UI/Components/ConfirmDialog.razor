@@ -1,0 +1,25 @@
+@inherits RpComponent
+@* In-app confirmation (browser confirm() isn't reliable inside the desktop web view). *@
+<Dialog Open="Open" OpenChanged="OpenChanged" Title="@Title">
+    <ChildContent><p class="rp-muted">@Message</p></ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => OpenChanged.InvokeAsync(false)">@T("common.cancel")</RpButton>
+        <RpButton Variant="@(Destructive ? "danger" : "primary")" OnClick="ConfirmAsync">@ConfirmText</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string Message { get; set; } = string.Empty;
+    [Parameter] public string ConfirmText { get; set; } = "OK";
+    [Parameter] public bool Destructive { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    private async Task ConfirmAsync()
+    {
+        await OpenChanged.InvokeAsync(false);
+        await OnConfirm.InvokeAsync();
+    }
+}

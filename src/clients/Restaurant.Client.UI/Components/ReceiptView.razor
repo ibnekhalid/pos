@@ -1,0 +1,83 @@
+@inherits RpComponent
+@using Restaurant.Contracts.Receipts
+@* A receipt or kitchen ticket document as HTML: what the browser print dialog prints and what the
+   order screen shows. Same layout as the PDF and the thermal printout. *@
+@{ var d = Document; }
+<div class="rp-receipt @(d.PaperSize == ReceiptPaperSize.Thermal58mm ? "narrow" : "") @(d.Kind == PrintKind.KitchenTicket ? "kitchen" : "")"
+     dir="@(d.Language == "ur" ? "rtl" : "ltr")">
+    @if (d.Kind == PrintKind.KitchenTicket)
+    {
+        <div class="rp-center">
+            <div class="rp-receipt-big">@d.OrderNumber</div>
+            <div class="rp-strong">@T($"orderType.{d.OrderType}")@(d.TableLabel is null ? "" : $" · {T("receipt.table")} {d.TableLabel}")</div>
+            <div class="rp-receipt-small">@string.Join(" · ", new[] { d.StationName, d.Round is > 1 ? T("kitchen.round", ("n", d.Round.ToString()!)) : null, d.PrintedAt }.Where(s => s is not null))</div>
+        </div>
+        @if (d.IsReprint) { <div class="rp-receipt-reprint">@T("receipt.reprint", ("n", (d.CopyNumber - 1).ToString()))</div> }
+        <div class="rp-receipt-dash"></div>
+        @foreach (var line in d.Lines)
+        {
+            <div class="rp-receipt-kline @(line.Voided ? "cancelled" : "")">@(line.Voided ? T("kitchen.cancel") + " " : "")@line.Quantity × @line.Name</div>
+            @foreach (var modifier in line.Modifiers) { <div class="rp-receipt-note">+ @modifier</div> }
+            @if (line.Notes is not null) { <div class="rp-receipt-note">» @line.Notes</div> }
+        }
+        @if (d.Notes is not null) { <div class="rp-receipt-dash"></div><div>@d.Notes</div> }
+    }
+    else
+    {
+        <div class="rp-center">
+            @if (d.LogoUrl is not null) { <img src="@Api.ResolveUrl(d.LogoUrl)" alt="" class="rp-receipt-logo" /> }
+            <div class="rp-receipt-name" style="color:@d.PrimaryColor">@d.BusinessName</div>
+            @foreach (var text in new[] { d.Tagline, d.Address, d.Phone }.Where(t => !string.IsNullOrWhiteSpace(t)))
+            {
+                <div class="rp-receipt-small">@text</div>
+            }
+            @if (d.Ntn is not null || d.Strn is not null)
+            {
+                <div class="rp-receipt-small" dir="ltr">@(d.Ntn is null ? "" : $"NTN {d.Ntn}")  @(d.Strn is null ? "" : $"STRN {d.Strn}")</div>
+            }
+            @if (d.Header is not null) { <div class="rp-receipt-small rp-mt-sm">@d.Header</div> }
+        </div>
+        @if (d.IsReprint) { <div class="rp-receipt-reprint">@T("receipt.reprint", ("n", (d.CopyNumber - 1).ToString()))</div> }
+        <div class="rp-receipt-rule" style="background:@d.AccentColor"></div>
+        <div class="rp-receipt-meta"><span>@T("receipt.order")</span><span>@d.OrderNumber · @T($"orderType.{d.OrderType}")@(d.TableLabel is null ? "" : $" · {d.TableLabel}")</span></div>
+        <div class="rp-receipt-meta"><span>@T("receipt.date")</span><span dir="ltr">@d.BusinessDate</span></div>
+        <div class="rp-receipt-meta"><span>@T("receipt.printed")</span><span dir="ltr">@d.PrintedAt</span></div>
+        @if (d.CashierName is not null) { <div class="rp-receipt-meta"><span>@T("receipt.cashier")</span><span>@d.CashierName</span></div> }
+        @if (d.CustomerName is not null) { <div class="rp-receipt-meta"><span>@T("receipt.customer")</span><span>@d.CustomerName</span></div> }
+        <div class="rp-receipt-dash"></div>
+        @foreach (var line in d.Lines)
+        {
+            <div class="rp-receipt-line"><span>@line.Quantity × @line.Name</span><span>@Money(line.LineTotal)</span></div>
+            @foreach (var modifier in line.Modifiers) { <div class="rp-receipt-note">+ @modifier</div> }
+            @if (line.Notes is not null) { <div class="rp-receipt-note">» @line.Notes</div> }
+        }
+        <div class="rp-receipt-dash"></div>
+        <div class="rp-receipt-meta"><span>@T("receipt.subtotal")</span><span>@Money(d.Subtotal)</span></div>
+        @foreach (var deal in d.Deals ?? []) { <div class="rp-receipt-meta"><span>@deal.Name@(deal.Quantity > 1 ? $" × {deal.Quantity}" : "")</span><span>-@Money(deal.Discount)</span></div> }
+        @if (d.OtherDiscount > 0) { <div class="rp-receipt-meta"><span>@T("receipt.discount")</span><span>-@Money(d.OtherDiscount)</span></div> }
+        @if (d.ServiceCharge > 0) { <div class="rp-receipt-meta"><span>@T("receipt.serviceCharge") @Format.Number(d.ServiceChargePercent)%</span><span>@Money(d.ServiceCharge)</span></div> }
+        @foreach (var tax in d.Taxes)
+        {
+            <div class="rp-receipt-meta"><span>@tax.Name @Format.Number(tax.Percent)%@(tax.Inclusive ? $" ({T("taxes.inclusive")})" : "")</span><span>@Money(tax.Amount)</span></div>
+        }
+        @if (d.Rounding != 0) { <div class="rp-receipt-meta"><span>@T("receipt.rounding")</span><span>@Money(d.Rounding)</span></div> }
+        <div class="rp-receipt-total" style="border-color:@d.AccentColor"><span>@T("receipt.total")</span><span>@Money(d.Total)</span></div>
+        @foreach (var payment in d.Payments)
+        {
+            <div class="rp-receipt-meta"><span>@payment.Method</span><span>@Money(payment.Amount)</span></div>
+            @if (payment.Change is > 0)
+            {
+                <div class="rp-receipt-meta"><span>@T("receipt.tendered")</span><span>@Money(payment.Tendered ?? 0)</span></div>
+                <div class="rp-receipt-meta"><span>@T("receipt.change")</span><span>@Money(payment.Change.Value)</span></div>
+            }
+        }
+        @if (d.Refunded > 0) { <div class="rp-receipt-meta"><span>@T("receipt.refunded")</span><span>-@Money(d.Refunded)</span></div> }
+        @if (d.Balance > 0) { <div class="rp-receipt-meta rp-strong"><span>@T("receipt.balance")</span><span>@Money(d.Balance)</span></div> }
+        @if (d.Footer is not null) { <div class="rp-receipt-footer">@d.Footer</div> }
+    }
+</div>
+
+@code {
+    [Inject] private RestaurantApi Api { get; set; } = default!;
+    [Parameter, EditorRequired] public ReceiptDocumentDto Document { get; set; } = default!;
+}

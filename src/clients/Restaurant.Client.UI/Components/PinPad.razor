@@ -1,0 +1,65 @@
+@inherits RpComponent
+@* Touch keypad for a 4–6 digit PIN. Also accepts the keyboard's digits, Backspace and Enter. *@
+<div class="rp-pinpad" tabindex="0" @ref="_root" @onkeydown="OnKey">
+    <div class="rp-pin-dots" aria-label="@T("pin.entered", ("count", _pin.Length.ToString()))">
+        @for (var i = 0; i < 6; i++)
+        {
+            <span class="@(i < _pin.Length ? "filled" : "") @(i >= 4 ? "optional" : "")"></span>
+        }
+    </div>
+    <div class="rp-pin-keys">
+        @foreach (var digit in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9" })
+        {
+            <button type="button" class="rp-pin-key" @onclick="() => Add(digit)" disabled="@Busy">@digit</button>
+        }
+        <button type="button" class="rp-pin-key muted" @onclick="Back" disabled="@Busy" aria-label="@T("pin.delete")"><Icon Name="backspace-outline" Size="24" /></button>
+        <button type="button" class="rp-pin-key" @onclick="@(() => Add("0"))" disabled="@Busy">0</button>
+        <button type="button" class="rp-pin-key go" @onclick="SubmitAsync" disabled="@(Busy || _pin.Length < 4)" aria-label="@T("pin.enter")">
+            @if (Busy) { <span class="rp-spinner small"></span> } else { <Icon Name="checkmark" Size="26" /> }
+        </button>
+    </div>
+</div>
+
+@code {
+    private ElementReference _root;
+    private string _pin = string.Empty;
+
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<string> OnSubmit { get; set; }
+
+    public void Clear()
+    {
+        _pin = string.Empty;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { await _root.FocusAsync(); } catch { /* not focusable yet */ }
+        }
+    }
+
+    private void Add(string digit)
+    {
+        if (_pin.Length < 6) _pin += digit;
+    }
+
+    private void Back()
+    {
+        if (_pin.Length > 0) _pin = _pin[..^1];
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_pin.Length >= 4 && !Busy) await OnSubmit.InvokeAsync(_pin);
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key.Length == 1 && char.IsDigit(e.Key[0])) Add(e.Key);
+        else if (e.Key == "Backspace") Back();
+        else if (e.Key == "Enter") await SubmitAsync();
+    }
+}

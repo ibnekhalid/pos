@@ -1,0 +1,211 @@
+@page "/app/settings/branches/{BranchId:guid}"
+@inherits PageBase
+
+<PageTitle>@(_branch?.Name ?? T("branches.title"))</PageTitle>
+<PageHeader Title="@(_branch?.Name ?? T("branches.title"))" BackHref="app/settings/branches" />
+
+@if (Loading)
+{
+    <Loading />
+}
+else if (_branch is null)
+{
+    <Notice Kind="danger">@Error</Notice>
+}
+else
+{
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+    @if (Error is not null && !_registerOpen) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+    <div class="rp-grid-2 rp-align-start">
+        <section class="rp-panel">
+            <h2>@T("branches.details")</h2>
+            <BranchForm @bind-Value="_details" Errors="FieldError" />
+            <CheckBox Label="@T("branches.active")" Hint="@T("branches.activeHint")" @bind-Value="_active" Disabled="!CanManage" />
+            @if (CanManage)
+            {
+                <RpButton Loading="Busy" OnClick="SaveDetailsAsync">@T("common.save")</RpButton>
+            }
+        </section>
+
+        <section class="rp-panel">
+            <h2>@T("branches.rules")</h2>
+            <div class="rp-grid-2">
+                <TextField Label="@T("branches.timeZone")" @bind-Value="_timeZone" Dir="ltr" Hint="@T("branches.timeZoneHint")" Error="@FieldError("TimeZoneId")" />
+                <SelectField Label="@T("branches.dayStart")" @bind-Value="_dayStart" Options="Hours" Hint="@T("branches.dayStartHint")" />
+            </div>
+            <div class="rp-grid-2">
+                <TextField Label="@T("branches.serviceCharge")" @bind-Value="_serviceCharge" InputMode="decimal" Dir="ltr" Error="@FieldError("ServiceChargePercent")" />
+                <SelectField Label="@T("branches.rounding")" @bind-Value="_rounding" Options="RoundingOptions" />
+            </div>
+            <div class="rp-label">@T("branches.serviceChargeOn")</div>
+            <div class="rp-row rp-wrap">
+                <CheckBox Label="@T("orderType.DineIn")" @bind-Value="_scDineIn" />
+                <CheckBox Label="@T("orderType.Takeaway")" @bind-Value="_scTakeaway" />
+                <CheckBox Label="@T("orderType.Delivery")" @bind-Value="_scDelivery" />
+            </div>
+            <div class="rp-grid-2">
+                <TextField Label="@T("branches.cashThreshold")" @bind-Value="_cashThreshold" InputMode="decimal" Dir="ltr" Hint="@T("branches.cashThresholdHint")" />
+                <TextField Label="@T("branches.lateTicket")" @bind-Value="_lateMinutes" InputMode="numeric" Dir="ltr" Error="@FieldError("LateTicketMinutes")" />
+            </div>
+            <div class="rp-grid-2">
+                <SelectField Label="@T("branches.sessionScope")" @bind-Value="_sessionScope" Options="ScopeOptions" />
+                <SelectField Label="@T("branches.stock")" @bind-Value="_stock" Options="StockOptions" />
+            </div>
+            @if (CanSettings)
+            {
+                <RpButton Loading="Busy" OnClick="SaveRulesAsync">@T("common.save")</RpButton>
+            }
+        </section>
+    </div>
+
+    <section class="rp-panel">
+        <div class="rp-row">
+            <h2 class="rp-grow">@T("registers.title")</h2>
+            @if (CanSettings)
+            {
+                <RpButton Small Variant="secondary" Icon="add" OnClick="() => OpenRegister(null)">@T("registers.add")</RpButton>
+            }
+        </div>
+        <table class="rp-table">
+            <thead><tr><th>@T("registers.name")</th><th>@T("registers.printer")</th><th>@T("registers.drawer")</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var register in _registers)
+                {
+                    <tr>
+                        <td>
+                            @register.Name
+                            @if (register.IsDefault) { <Badge Kind="brand">@T("registers.default")</Badge> }
+                            @if (!register.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                        </td>
+                        <td dir="ltr">@(register.ReceiptPrinterName ?? "—")</td>
+                        <td>@(register.CashDrawerEnabled ? T("common.yes") : T("common.no"))</td>
+                        <td class="rp-right">
+                            @if (CanSettings)
+                            {
+                                <button class="rp-icon-btn" @onclick="() => OpenRegister(register)" aria-label="@T("common.edit")"><Icon Name="create-outline" /></button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <p class="rp-hint">@T("registers.printerHint")</p>
+    </section>
+}
+
+<Dialog @bind-Open="_registerOpen" Title="@(_editingRegister is null ? T("registers.add") : T("registers.edit"))" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <TextField Label="@T("registers.name")" @bind-Value="_regName" Error="@FieldError("Name")" />
+        <TextField Label="@T("registers.receiptPrinter")" @bind-Value="_regPrinter" Dir="ltr" Hint="@T("registers.printerNameHint")" />
+        <TextField Label="@T("registers.kitchenPrinter")" @bind-Value="_regKitchen" Dir="ltr" />
+        <CheckBox Label="@T("registers.drawer")" Hint="@T("registers.drawerHint")" @bind-Value="_regDrawer" />
+        <CheckBox Label="@T("registers.default")" @bind-Value="_regDefault" />
+        <CheckBox Label="@T("common.active")" @bind-Value="_regActive" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _registerOpen = false">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveRegisterAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public Guid BranchId { get; set; }
+
+    private BranchDto? _branch;
+    private IReadOnlyList<RegisterDto> _registers = [];
+    private SaveBranchRequest _details = new("", null, null, null, "");
+    private bool _active;
+    private string? _timeZone, _dayStart, _serviceCharge, _rounding, _cashThreshold, _lateMinutes, _sessionScope, _stock;
+    private bool _scDineIn, _scTakeaway, _scDelivery;
+
+    private bool _registerOpen;
+    private RegisterDto? _editingRegister;
+    private string? _regName, _regPrinter, _regKitchen;
+    private bool _regDrawer, _regDefault, _regActive = true;
+
+    private bool CanManage => User.Can(Permissions.Tenant.ManageBranches);
+    private bool CanSettings => User.Can(Permissions.Tenant.ManageSettings);
+
+    private static IEnumerable<(string, string)> Hours => Enumerable.Range(0, 24).Select(h => (h.ToString(), $"{h:00}:00"));
+    private IEnumerable<(string, string)> RoundingOptions => Enum.GetValues<RoundingMode>().Select(v => (v.ToString(), T($"rounding.{v}")));
+    private IEnumerable<(string, string)> ScopeOptions => Enum.GetValues<SessionScope>().Select(v => (v.ToString(), T($"sessionScope.{v}")));
+    private IEnumerable<(string, string)> StockOptions => Enum.GetValues<InsufficientStockBehavior>().Select(v => (v.ToString(), T($"stockPolicy.{v}")));
+
+    protected override async Task LoadAsync()
+    {
+        _branch = await Api.GetBranchAsync(BranchId);
+        _registers = await Api.GetRegistersAsync(BranchId);
+        Fill(_branch);
+    }
+
+    private void Fill(BranchDto b)
+    {
+        _details = new SaveBranchRequest(b.Name, b.Address, b.City, b.Phone, b.OrderNumberPrefix, b.IsActive);
+        _active = b.IsActive;
+        var s = b.Settings;
+        _timeZone = s.TimeZoneId;
+        _dayStart = s.DayStartHour.ToString();
+        _serviceCharge = Format.Number(s.ServiceChargePercent);
+        _rounding = s.Rounding.ToString();
+        _cashThreshold = Format.Number(s.CashDifferenceThreshold);
+        _lateMinutes = s.LateTicketMinutes.ToString();
+        _sessionScope = s.SessionScope.ToString();
+        _stock = s.InsufficientStock.ToString();
+        _scDineIn = s.ServiceChargeAppliesTo.HasFlag(OrderTypes.DineIn);
+        _scTakeaway = s.ServiceChargeAppliesTo.HasFlag(OrderTypes.Takeaway);
+        _scDelivery = s.ServiceChargeAppliesTo.HasFlag(OrderTypes.Delivery);
+    }
+
+    private Task SaveDetailsAsync() => RunAsync(async () =>
+    {
+        _branch = await Api.UpdateBranchAsync(BranchId, _details with { IsActive = _active });
+        Fill(_branch);
+        await User.LoadAsync();
+    }, T("common.saved"));
+
+    private Task SaveRulesAsync() => RunAsync(async () =>
+    {
+        var appliesTo = (_scDineIn ? OrderTypes.DineIn : 0) | (_scTakeaway ? OrderTypes.Takeaway : 0) | (_scDelivery ? OrderTypes.Delivery : 0);
+        var settings = new BranchSettingsDto(
+            _timeZone?.Trim() ?? "",
+            int.Parse(_dayStart ?? "6"),
+            Format.ParseNumber(_serviceCharge) ?? -1,
+            appliesTo,
+            Enum.Parse<RoundingMode>(_rounding!),
+            Enum.Parse<SessionScope>(_sessionScope!),
+            Format.ParseNumber(_cashThreshold) ?? -1,
+            Enum.Parse<InsufficientStockBehavior>(_stock!),
+            int.TryParse(_lateMinutes, out var late) ? late : 0);
+        _branch = await Api.UpdateBranchSettingsAsync(BranchId, settings);
+        Fill(_branch);
+    }, T("common.saved"));
+
+    private void OpenRegister(RegisterDto? register)
+    {
+        Error = null;
+        _editingRegister = register;
+        _regName = register?.Name;
+        _regPrinter = register?.ReceiptPrinterName;
+        _regKitchen = register?.KitchenPrinterName;
+        _regDrawer = register?.CashDrawerEnabled ?? false;
+        _regDefault = register?.IsDefault ?? false;
+        _regActive = register?.IsActive ?? true;
+        _registerOpen = true;
+    }
+
+    private async Task SaveRegisterAsync()
+    {
+        var request = new SaveRegisterRequest(_regName ?? "", _regDefault, _regActive, Blank(_regPrinter), Blank(_regKitchen), _regDrawer);
+        var ok = await RunAsync(async () =>
+        {
+            if (_editingRegister is null) await Api.CreateRegisterAsync(BranchId, request);
+            else await Api.UpdateRegisterAsync(BranchId, _editingRegister.Id, request);
+            _registers = await Api.GetRegistersAsync(BranchId);
+        }, T("common.saved"));
+        if (ok) _registerOpen = false;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}

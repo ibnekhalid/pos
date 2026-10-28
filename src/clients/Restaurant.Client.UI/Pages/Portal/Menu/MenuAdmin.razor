@@ -1,0 +1,243 @@
+@page "/app/menu"
+@inherits PageBase
+@using Restaurant.Contracts.Menu
+
+<PageTitle>@T("nav.menu")</PageTitle>
+<PageHeader Title="@T("nav.menu")" Subtitle="@T("menu.subtitle", ("branch", User.CurrentBranch?.Name ?? ""))">
+    <Actions>
+        @if (CanManage && _tab == "items") { <a class="rp-btn" href="app/menu/items/new"><Icon Name="add" /> @T("menu.addItem")</a> }
+        @if (CanManage && _tab != "items") { <RpButton Icon="add" OnClick="() => OpenEditor(null)">@T("menu.add")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!User.CanAny(Permissions.Menu.Manage, Permissions.Menu.Availability))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    <div class="rp-tabs">
+        @foreach (var tab in new[] { "items", "categories", "addons", "stations" })
+        {
+            <button class="@(_tab == tab ? "active" : "")" @onclick="() => _tab = tab">@T($"menu.tab.{tab}")</button>
+        }
+    </div>
+    @if (Error is not null && _editing is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+    @switch (_tab)
+    {
+        case "items":
+            @if (_categories.Count == 0)
+            {
+                <EmptyState Icon="restaurant-outline" Title="@T("menu.startTitle")" Text="@T("menu.startText")" />
+            }
+            @foreach (var category in _categories)
+            {
+                var items = _items.Where(i => i.CategoryId == category.Id).ToList();
+                <section class="rp-panel">
+                    <h2>@category.Name @if (!category.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }</h2>
+                    @if (items.Count == 0) { <p class="rp-muted">@T("menu.noItems")</p> }
+                    @foreach (var item in items)
+                    {
+                        var availability = _availability.GetValueOrDefault(item.Id)?.Availability ?? MenuAvailability.Available;
+                        <div class="rp-order-line @(item.IsActive ? "" : "rp-dim")">
+                            <div class="rp-grow">
+                                @if (CanManage) { <a class="rp-strong" href="@($"app/menu/items/{item.Id}")">@item.Name</a> } else { <span class="rp-strong">@item.Name</span> }
+                                <div class="rp-hint">
+                                    @(item.Variants.Count(v => v.IsActive) > 0 ? string.Join(" · ", item.Variants.Where(v => v.IsActive).Select(v => $"{v.Name} {Money(v.Price)}")) : Money(item.Price))
+                                    @(item.KitchenStationId is { } s ? $" · {_stations.FirstOrDefault(x => x.Id == s)?.Name}" : "")
+                                </div>
+                            </div>
+                            <select class="rp-branch-select @(availability == MenuAvailability.Available ? "" : "warn")" value="@availability"
+                                    @onchange="e => SetAvailabilityAsync(item, e.Value?.ToString())" aria-label="@T("menu.availability")">
+                                @foreach (var a in Enum.GetValues<MenuAvailability>()) { <option value="@a">@T($"availability.{a}")</option> }
+                            </select>
+                        </div>
+                    }
+                </section>
+            }
+            break;
+
+        case "categories":
+            <div class="rp-list">
+                @foreach (var category in _categories)
+                {
+                    <button class="rp-list-item" @onclick="() => OpenEditor(category.Id)" disabled="@(!CanManage)">
+                        <span class="rp-color-dot" style="background:@(category.Color ?? "var(--rp-border)")"></span>
+                        <span class="rp-grow"><span class="rp-strong">@category.Name</span><span class="rp-hint">@category.NameUr</span></span>
+                        @if (!category.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                    </button>
+                }
+            </div>
+            break;
+
+        case "addons":
+            <div class="rp-list">
+                @foreach (var group in _groups)
+                {
+                    <button class="rp-list-item" @onclick="() => OpenEditor(group.Id)" disabled="@(!CanManage)">
+                        <span class="rp-grow">
+                            <span class="rp-strong">@group.Name</span>
+                            <span class="rp-hint">@string.Join(", ", group.Options.Where(o => o.IsActive).Select(o => o.PriceDelta == 0 ? o.Name : $"{o.Name} +{Money(o.PriceDelta)}"))</span>
+                        </span>
+                        <Badge>@T("menu.choose", ("min", group.MinSelect.ToString()), ("max", group.MaxSelect.ToString()))</Badge>
+                    </button>
+                }
+            </div>
+            break;
+
+        case "stations":
+            <p class="rp-muted">@T("menu.stationsHint")</p>
+            <div class="rp-list">
+                @foreach (var station in _stations)
+                {
+                    <button class="rp-list-item" @onclick="() => OpenEditor(station.Id)" disabled="@(!CanManage)">
+                        <Icon Name="flame-outline" Size="22" />
+                        <span class="rp-grow rp-strong">@station.Name</span>
+                        @if (!station.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                    </button>
+                }
+            </div>
+            break;
+    }
+}
+
+<Dialog Open="_editing is not null" OpenChanged="open => { if (!open) _editing = null; }" Title="@T($"menu.edit.{_tab}")" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_editing is not null)
+        {
+            <div class="rp-grid-2">
+                <TextField Label="@T("menu.name")" @bind-Value="_editing.Name" Error="@FieldError("Name")" />
+                @if (_tab != "stations") { <TextField Label="@T("menu.nameUr")" @bind-Value="_editing.NameUr" Dir="rtl" /> }
+            </div>
+            @if (_tab == "categories")
+            {
+                <div class="rp-grid-2">
+                    <ColorField Label="@T("menu.colour")" @bind-Value="_editing.Color" />
+                    <TextField Label="@T("paymentMethods.order")" @bind-Value="_editing.Sort" InputMode="numeric" Dir="ltr" />
+                </div>
+            }
+            @if (_tab == "addons")
+            {
+                <div class="rp-grid-2">
+                    <TextField Label="@T("menu.minChoices")" @bind-Value="_editing.Min" InputMode="numeric" Dir="ltr" />
+                    <TextField Label="@T("menu.maxChoices")" @bind-Value="_editing.Max" InputMode="numeric" Dir="ltr" Error="@FieldError("MaxSelect")" />
+                </div>
+                <div class="rp-label">@T("menu.options")</div>
+                @foreach (var option in _editing.Options)
+                {
+                    <div class="rp-row rp-mb">
+                        <input class="rp-input rp-boxed rp-grow" placeholder="@T("menu.name")" @bind="option.Name" />
+                        <input class="rp-input rp-boxed" style="width:110px" placeholder="+0" inputmode="decimal" @bind="option.Price" />
+                        <button class="rp-icon-btn" @onclick="() => _editing.Options.Remove(option)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                    </div>
+                }
+                <RpButton Small Variant="secondary" Icon="add" OnClick="() => _editing.Options.Add(new OptionDraft())">@T("menu.addOption")</RpButton>
+            }
+            @if (_tab != "addons") { <CheckBox Label="@T("common.active")" @bind-Value="_editing.Active" /> }
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _editing = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private sealed class OptionDraft
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Price { get; set; }
+    }
+
+    private sealed class Draft
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? NameUr { get; set; }
+        public string Color { get; set; } = "#F59E0B";
+        public string? Sort { get; set; }
+        public string? Min { get; set; } = "0";
+        public string? Max { get; set; } = "1";
+        public bool Active { get; set; } = true;
+        public List<OptionDraft> Options { get; set; } = [];
+    }
+
+    private string _tab = "items";
+    private IReadOnlyList<MenuItemDto> _items = [];
+    private IReadOnlyList<MenuCategoryDto> _categories = [];
+    private IReadOnlyList<ModifierGroupDto> _groups = [];
+    private IReadOnlyList<KitchenStationDto> _stations = [];
+    private Dictionary<Guid, PosMenuItemDto> _availability = [];
+    private Draft? _editing;
+
+    private bool CanManage => User.Can(Permissions.Menu.Manage);
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.CanAny(Permissions.Menu.Manage, Permissions.Menu.Availability)) return;
+        var items = Api.GetMenuItemsAsync();
+        var categories = Api.GetCategoriesAsync();
+        var groups = Api.GetModifierGroupsAsync();
+        var stations = Api.GetStationsAsync();
+        var pos = Api.GetPosMenuAsync();
+        (_items, _categories, _groups, _stations) = (await items, await categories, await groups, await stations);
+        _availability = (await pos).Items.ToDictionary(i => i.Id);
+    }
+
+    private Task SetAvailabilityAsync(MenuItemDto item, string? value) => RunAsync(async () =>
+    {
+        var availability = Enum.Parse<MenuAvailability>(value!);
+        await Api.SetAvailabilityAsync(item.Id, new SetAvailabilityRequest(availability, _availability.GetValueOrDefault(item.Id)?.PriceOverride));
+        _availability = (await Api.GetPosMenuAsync()).Items.ToDictionary(i => i.Id);
+    });
+
+    private void OpenEditor(Guid? id)
+    {
+        Error = null;
+        _editing = _tab switch
+        {
+            "categories" when _categories.FirstOrDefault(c => c.Id == id) is { } c =>
+                new Draft { Id = c.Id, Name = c.Name, NameUr = c.NameUr, Color = c.Color ?? "#F59E0B", Sort = c.SortOrder.ToString(), Active = c.IsActive },
+            "addons" when _groups.FirstOrDefault(g => g.Id == id) is { } g =>
+                new Draft { Id = g.Id, Name = g.Name, NameUr = g.NameUr, Min = g.MinSelect.ToString(), Max = g.MaxSelect.ToString(),
+                    Options = g.Options.Where(o => o.IsActive).Select(o => new OptionDraft { Id = o.Id, Name = o.Name, Price = Format.Number(o.PriceDelta) }).ToList() },
+            "stations" when _stations.FirstOrDefault(s => s.Id == id) is { } s =>
+                new Draft { Id = s.Id, Name = s.Name, Sort = s.SortOrder.ToString(), Active = s.IsActive },
+            "addons" => new Draft { Options = [new OptionDraft()] },
+            _ => new Draft { Sort = (_tab == "categories" ? _categories.Count + 1 : _stations.Count + 1).ToString() }
+        };
+    }
+
+    private async Task SaveAsync()
+    {
+        var d = _editing!;
+        var sort = int.TryParse(d.Sort, out var n) ? n : 0;
+        var ok = await RunAsync(async () =>
+        {
+            switch (_tab)
+            {
+                case "categories":
+                    await Api.SaveCategoryAsync(d.Id, new SaveMenuCategoryRequest(d.Name ?? "", d.NameUr, sort, d.Color, d.Active));
+                    break;
+                case "addons":
+                    await Api.SaveModifierGroupAsync(d.Id, new SaveModifierGroupRequest(d.Name ?? "", d.NameUr,
+                        int.TryParse(d.Min, out var min) ? min : 0, int.TryParse(d.Max, out var max) ? max : 1, 0,
+                        d.Options.Where(o => !string.IsNullOrWhiteSpace(o.Name))
+                            .Select((o, i) => new SaveModifierOptionRequest(o.Id, o.Name!, null, Format.ParseNumber(o.Price) ?? 0, i)).ToList()));
+                    break;
+                case "stations":
+                    await Api.SaveStationAsync(d.Id, new SaveKitchenStationRequest(d.Name ?? "", sort, d.Active));
+                    break;
+            }
+            await LoadAsync();
+        }, T("common.saved"));
+        if (ok) _editing = null;
+    }
+}

@@ -1,0 +1,22 @@
+@page "/app/{Slug}"
+@inherits RpComponent
+
+@if (_section is null)
+{
+    <PageTitle>@T("common.notFound")</PageTitle>
+    <EmptyState Icon="help-circle-outline" Title="@T("common.notFound")" />
+}
+else
+{
+    <PageTitle>@T(_section.TitleKey)</PageTitle>
+    <PageHeader Title="@T(_section.TitleKey)" Subtitle="@T(_section.SummaryKey)" />
+    <EmptyState Icon="@_section.Icon" Title="@T("planned.title")" Text="@T("planned.text", ("phase", _section.Phase.ToString()))" />
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+
+    private AppSections.Section? _section;
+
+    protected override void OnParametersSet() => _section = AppSections.Find(Slug);
+}

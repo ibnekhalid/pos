@@ -1,0 +1,76 @@
+@page "/app"
+@inherits PageBase
+@inject SessionStore Session
+@inject DeviceRegistration Device
+
+<PageTitle>@Brand.DisplayName</PageTitle>
+
+<PageHeader Title="@T("home.greeting", ("name", FirstName))" Subtitle="@Subtitle" />
+
+@if (CanSetUp)
+{
+    <section class="rp-panel">
+        <h2>@T("home.setupTitle")</h2>
+        <p class="rp-muted">@T("home.setupSubtitle")</p>
+        <div class="rp-checklist">
+            <a class="rp-check-item @(_taxCount > 0 ? "done" : "")" href="app/settings/taxes">
+                <Icon Name="@(_taxCount > 0 ? "checkmark-circle" : "ellipse-outline")" Size="22" />
+                <span class="rp-grow">@T("home.setupTaxes")</span><Icon Name="chevron-forward" />
+            </a>
+            <a class="rp-check-item @(_brandingDone ? "done" : "")" href="app/settings/branding">
+                <Icon Name="@(_brandingDone ? "checkmark-circle" : "ellipse-outline")" Size="22" />
+                <span class="rp-grow">@T("home.setupBranding")</span><Icon Name="chevron-forward" />
+            </a>
+            @if (User.Can(Permissions.Staff.Manage))
+            {
+                <a class="rp-check-item @(_staffCount > 1 ? "done" : "")" href="app/staff">
+                    <Icon Name="@(_staffCount > 1 ? "checkmark-circle" : "ellipse-outline")" Size="22" />
+                    <span class="rp-grow">@T("home.setupStaff")</span><Icon Name="chevron-forward" />
+                </a>
+            }
+            <a class="rp-check-item @(Device.IsRegistered ? "done" : "")" href="app/settings/devices">
+                <Icon Name="@(Device.IsRegistered ? "checkmark-circle" : "ellipse-outline")" Size="22" />
+                <span class="rp-grow">@T("home.setupDevice")</span><Icon Name="chevron-forward" />
+            </a>
+        </div>
+    </section>
+}
+
+<section class="rp-panel">
+    <h2>@T("home.sectionsTitle")</h2>
+    <div class="rp-tiles">
+        @foreach (var section in AppSections.All.Where(s => s.Slug != "" && (s.AnyOf.Length == 0 || User.CanAny(s.AnyOf))))
+        {
+            <a class="rp-tile" href="@($"app/{section.Slug}")">
+                <Icon Name="@section.Icon" Size="28" Color="var(--rp-primary)" />
+                <span class="rp-strong">@T(section.TitleKey)</span>
+                <span class="rp-hint">@T(section.SummaryKey)</span>
+                @if (!section.Built)
+                {
+                    <span class="rp-soon">@T("home.phase", ("phase", section.Phase.ToString()))</span>
+                }
+            </a>
+        }
+    </div>
+</section>
+
+@code {
+    private int _taxCount;
+    private int _staffCount;
+    private bool _brandingDone;
+
+    private string FirstName => (User.Me?.FullName ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+
+    private string Subtitle => string.Join(" · ", new[] { Session.TenantName, User.CurrentBranch?.Name }.Where(s => !string.IsNullOrEmpty(s)));
+
+    private bool CanSetUp => User.Can(Permissions.Tenant.ManageSettings) && User.Can(Permissions.Tenant.ManageBranding);
+
+    protected override async Task LoadAsync()
+    {
+        if (!CanSetUp) return;
+        _taxCount = (await Api.GetTaxRatesAsync()).Count;
+        var branding = await Api.GetBrandingAsync();
+        _brandingDone = branding.LogoUrl is not null || branding.UpdatedByOwner();
+        if (User.Can(Permissions.Staff.View)) _staffCount = (await Api.GetStaffAsync()).Count;
+    }
+}

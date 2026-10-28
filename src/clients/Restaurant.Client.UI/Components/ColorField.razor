@@ -1,0 +1,26 @@
+@* Hex colour with a native picker swatch beside it (Tailor Book's ColorField). *@
+<div class="rp-field">
+    <label class="rp-label">@Label</label>
+    <div class="rp-input-wrap">
+        <input type="color" class="rp-color-swatch" value="@SwatchValue" @onchange="OnPicked" aria-label="@Label" />
+        <input class="rp-input" value="@Value" maxlength="7" spellcheck="false" dir="ltr" @onchange="OnTyped" />
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = "#000000";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    // <input type=color> only accepts #rrggbb.
+    private string SwatchValue => System.Text.RegularExpressions.Regex.IsMatch(Value ?? "", "^#[0-9a-fA-F]{6}$") ? Value!.ToLowerInvariant() : "#000000";
+
+    private Task OnPicked(ChangeEventArgs e) => ValueChanged.InvokeAsync(e.Value?.ToString()?.ToUpperInvariant() ?? Value);
+
+    private Task OnTyped(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString()?.Trim() ?? "";
+        if (text.Length > 0 && text[0] != '#') text = "#" + text;
+        return ValueChanged.InvokeAsync(text.ToUpperInvariant());
+    }
+}

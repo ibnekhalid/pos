@@ -1,0 +1,284 @@
+@page "/app/deals"
+@inherits PageBase
+@using Restaurant.Contracts.Deals
+@using Restaurant.Contracts.Menu
+@using Restaurant.Contracts.Tenancy
+
+<PageTitle>@T("nav.deals")</PageTitle>
+<PageHeader Title="@T("nav.deals")" Subtitle="@T("deals.subtitle")">
+    <Actions>
+        @if (CanManage) { <RpButton Icon="add" OnClick="() => Open(null)">@T("deals.add")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!User.CanAny(Permissions.Deals.View, Permissions.Deals.Manage))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && _draft is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (_deals.Count == 0)
+    {
+        <EmptyState Icon="pricetags-outline" Title="@T("deals.emptyTitle")" Text="@T("deals.emptyText")" />
+    }
+    <div class="rp-list">
+        @foreach (var deal in _deals)
+        {
+            <button class="rp-list-item @(deal.IsActive ? "" : "rp-dim")" @onclick="() => Open(deal)" disabled="@(!CanManage)">
+                <Icon Name="pricetags-outline" Size="22" />
+                <span class="rp-grow">
+                    <span class="rp-strong">@deal.Name</span>
+                    <span class="rp-hint">@Summary(deal)</span>
+                </span>
+                @if (deal.CouponCode is not null) { <Badge Kind="info">@deal.CouponCode</Badge> }
+                <Badge>@T($"dealType.{deal.Type}")</Badge>
+                @if (!deal.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+            </button>
+        }
+    </div>
+}
+
+<Dialog Open="_draft is not null" OpenChanged="open => { if (!open) _draft = null; }" Title="@T(_draft?.Id is null ? "deals.add" : "deals.edit")" Wide Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_draft is { } d)
+        {
+            <div class="rp-grid-2">
+                <TextField Label="@T("menu.name")" @bind-Value="d.Name" Error="@FieldError("Name")" MaxLength="100" />
+                <TextField Label="@T("menu.nameUr")" @bind-Value="d.NameUr" Dir="rtl" MaxLength="100" />
+            </div>
+            <TextField Label="@T("deals.description")" @bind-Value="d.Description" MaxLength="300" />
+
+            <div class="rp-label">@T("deals.type")</div>
+            <div class="rp-segmented block rp-mb">
+                @foreach (var type in Enum.GetValues<DealType>())
+                {
+                    <button class="@(d.Type == type ? "active" : "")" @onclick="() => d.Type = type">@T($"dealType.{type}")</button>
+                }
+            </div>
+            <p class="rp-hint">@T($"dealType.{d.Type}Hint")</p>
+
+            @switch (d.Type)
+            {
+                case DealType.Bundle:
+                    <TextField Label="@T("deals.bundlePrice")" @bind-Value="d.BundlePrice" InputMode="decimal" Dir="ltr" Error="@FieldError("BundlePrice")" />
+                    break;
+                case DealType.BuyXGetY:
+                    <div class="rp-grid-2">
+                        <TextField Label="@T("deals.buy")" @bind-Value="d.Buy" InputMode="numeric" Dir="ltr" Error="@FieldError("BuyQuantity")" />
+                        <TextField Label="@T("deals.get")" @bind-Value="d.Get" InputMode="numeric" Dir="ltr" />
+                    </div>
+                    <TextField Label="@T("deals.getPercentOff")" @bind-Value="d.GetPercent" InputMode="decimal" Dir="ltr" Hint="@T("deals.getPercentOffHint")" />
+                    break;
+                default:
+                    <div class="rp-grid-2">
+                        @if (d.Type == DealType.PercentOff)
+                        {
+                            <TextField Label="@T("deals.percent")" @bind-Value="d.Percent" InputMode="decimal" Dir="ltr" Error="@FieldError("Percent")" />
+                        }
+                        else
+                        {
+                            <TextField Label="@T("deals.amount")" @bind-Value="d.Amount" InputMode="decimal" Dir="ltr" Error="@FieldError("Amount")" />
+                        }
+                        <SelectField Label="@T("deals.appliesTo")" Value="@d.Scope.ToString()" ValueChanged="v => d.Scope = Enum.Parse<DealScope>(v!)"
+                                     Options="@(Enum.GetValues<DealScope>().Select(s => (s.ToString(), T($"dealScope.{s}"))))" />
+                    </div>
+                    break;
+            }
+
+            @if (d.Type is DealType.Bundle or DealType.BuyXGetY || d.Scope == DealScope.Items)
+            {
+                <div class="rp-label rp-mt">@T(d.Type == DealType.Bundle ? "deals.bundleItems" : "deals.items")</div>
+                @if (d.Type == DealType.Bundle) { <p class="rp-hint">@T("deals.bundleItemsHint")</p> }
+                @foreach (var row in d.Items)
+                {
+                    <div class="rp-row rp-mb">
+                        @if (d.Type == DealType.Bundle)
+                        {
+                            <input class="rp-input rp-boxed" style="width:70px" inputmode="numeric" aria-label="@T("deals.part", ("n", ""))" @bind="row.Part" title="@T("deals.partNumber")" />
+                        }
+                        <select class="rp-input rp-boxed rp-grow" @bind="row.Key" aria-label="@T("deals.item")">
+                            <option value="">@T("deals.chooseItem")</option>
+                            @foreach (var option in _itemOptions) { <option value="@option.Value">@option.Text</option> }
+                        </select>
+                        @if (d.Type == DealType.Bundle)
+                        {
+                            <input class="rp-input rp-boxed" style="width:70px" inputmode="numeric" aria-label="@T("pos.quantity")" @bind="row.Quantity" />
+                        }
+                        <button class="rp-icon-btn" @onclick="() => d.Items.Remove(row)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                    </div>
+                }
+                @if (FieldError("Items") is { } itemsError) { <div class="rp-error-text">@itemsError</div> }
+                <RpButton Small Variant="secondary" Icon="add" OnClick="() => d.Items.Add(new ItemRow { Part = (d.Items.Count + 1).ToString() })">@T("deals.addItem")</RpButton>
+            }
+
+            <h3 class="rp-mt">@T("deals.when")</h3>
+            <div class="rp-grid-2">
+                <TextField Label="@T("deals.startDate")" @bind-Value="d.StartDate" Type="date" Dir="ltr" />
+                <TextField Label="@T("deals.endDate")" @bind-Value="d.EndDate" Type="date" Dir="ltr" Error="@FieldError("EndDate")" />
+                <TextField Label="@T("deals.startTime")" @bind-Value="d.StartTime" Type="time" Dir="ltr" Error="@FieldError("StartTime")" />
+                <TextField Label="@T("deals.endTime")" @bind-Value="d.EndTime" Type="time" Dir="ltr" />
+            </div>
+            <div class="rp-label">@T("deals.days")</div>
+            <div class="rp-choice-tiles rp-mb">
+                @foreach (var day in Days)
+                {
+                    <button type="button" class="@(d.Days.HasFlag(day) ? "active" : "")" @onclick="() => d.Days ^= day">@T($"weekday.{day}")</button>
+                }
+            </div>
+
+            @if (d.Type != DealType.Bundle)
+            {
+                <div class="rp-grid-2">
+                    <TextField Label="@T("deals.coupon")" @bind-Value="d.Coupon" Dir="ltr" MaxLength="30" Hint="@T("deals.couponHint")" Error="@FieldError("CouponCode")" />
+                    <TextField Label="@T("deals.minimum")" @bind-Value="d.Minimum" InputMode="decimal" Dir="ltr" />
+                </div>
+                <CheckBox Label="@T("deals.combinable")" Hint="@T("deals.combinableHint")" @bind-Value="d.Combinable" />
+            }
+            @if (_branches.Count > 1)
+            {
+                <CheckBox Label="@T("deals.allBranches")" @bind-Value="d.AllBranches" />
+                @if (!d.AllBranches)
+                {
+                    <div class="rp-choice-tiles rp-mb">
+                        @foreach (var branch in _branches)
+                        {
+                            <button type="button" class="@(d.BranchIds.Contains(branch.Id) ? "active" : "")"
+                                    @onclick="() => { if (!d.BranchIds.Remove(branch.Id)) d.BranchIds.Add(branch.Id); }">@branch.Name</button>
+                        }
+                    </div>
+                }
+            }
+            <CheckBox Label="@T("common.active")" @bind-Value="d.Active" />
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _draft = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private sealed class ItemRow
+    {
+        public string? Part { get; set; } = "1";
+        public string? Key { get; set; }
+        public string? Quantity { get; set; } = "1";
+    }
+
+    private sealed class Draft
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? NameUr { get; set; }
+        public string? Description { get; set; }
+        public DealType Type { get; set; } = DealType.Bundle;
+        public DealScope Scope { get; set; } = DealScope.Order;
+        public string? Percent { get; set; }
+        public string? Amount { get; set; }
+        public string? BundlePrice { get; set; }
+        public string? Buy { get; set; } = "1";
+        public string? Get { get; set; } = "1";
+        public string? GetPercent { get; set; } = "100";
+        public string? StartDate { get; set; }
+        public string? EndDate { get; set; }
+        public string? StartTime { get; set; }
+        public string? EndTime { get; set; }
+        public WeekDays Days { get; set; } = WeekDays.All;
+        public string? Coupon { get; set; }
+        public string? Minimum { get; set; }
+        public bool Combinable { get; set; } = true;
+        public bool AllBranches { get; set; } = true;
+        public List<Guid> BranchIds { get; set; } = [];
+        public bool Active { get; set; } = true;
+        public List<ItemRow> Items { get; set; } = [];
+    }
+
+    private static readonly WeekDays[] Days =
+        [WeekDays.Monday, WeekDays.Tuesday, WeekDays.Wednesday, WeekDays.Thursday, WeekDays.Friday, WeekDays.Saturday, WeekDays.Sunday];
+
+    private IReadOnlyList<DealDto> _deals = [];
+    private IReadOnlyList<MenuItemDto> _menuItems = [];
+    private IReadOnlyList<BranchDto> _branches = [];
+    private List<(string Value, string Text)> _itemOptions = [];
+    private Draft? _draft;
+
+    private bool CanManage => User.Can(Permissions.Deals.Manage);
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.CanAny(Permissions.Deals.View, Permissions.Deals.Manage)) return;
+        var deals = Api.GetDealsAsync();
+        var items = Api.GetMenuItemsAsync();
+        var branches = Api.GetBranchesAsync();
+        (_deals, _menuItems, _branches) = (await deals, await items, await branches);
+        _itemOptions = _menuItems.Where(i => i.IsActive).OrderBy(i => i.Name).SelectMany(i =>
+            new[] { ($"{i.Id}|", i.Variants.Count == 0 ? i.Name : T("deals.anySize", ("item", i.Name))) }
+                .Concat(i.Variants.Where(v => v.IsActive).Select(v => ($"{i.Id}|{v.Id}", $"{i.Name} ({v.Name})")))).ToList();
+    }
+
+    private string Summary(DealDto deal)
+    {
+        var what = deal.Type switch
+        {
+            DealType.Bundle => T("deals.summaryBundle", ("price", Money(deal.BundlePrice ?? 0)), ("items", ItemNames(deal))),
+            DealType.BuyXGetY => T("deals.summaryBogo", ("buy", deal.BuyQuantity.ToString()!), ("get", deal.GetQuantity.ToString()!), ("items", ItemNames(deal))),
+            DealType.PercentOff => T("deals.summaryPercent", ("n", Format.Number(deal.Percent ?? 0)), ("on", deal.Scope == DealScope.Order ? T("dealScope.Order") : ItemNames(deal))),
+            _ => T("deals.summaryAmount", ("amount", Money(deal.Amount ?? 0)), ("on", deal.Scope == DealScope.Order ? T("dealScope.Order") : ItemNames(deal)))
+        };
+        var when = deal.StartTime is { } start && deal.EndTime is { } end ? $" · {start:HH\\:mm}–{end:HH\\:mm}" : "";
+        var days = deal.Days == WeekDays.All ? "" : " · " + string.Join(", ", Days.Where(x => deal.Days.HasFlag(x)).Select(x => T($"weekday.{x}")));
+        return what + when + days;
+    }
+
+    private string ItemNames(DealDto deal) =>
+        string.Join(deal.Type == DealType.Bundle ? " + " : ", ", deal.Items.GroupBy(i => i.Group).Select(g =>
+            string.Join(" / ", g.Select(i => _menuItems.FirstOrDefault(m => m.Id == i.MenuItemId)?.Name ?? "?"))));
+
+    private void Open(DealDto? deal)
+    {
+        Error = null;
+        _draft = deal is null ? new Draft { Items = [new ItemRow { Part = "1" }, new ItemRow { Part = "2" }] } : new Draft
+        {
+            Id = deal.Id, Name = deal.Name, NameUr = deal.NameUr, Description = deal.Description, Type = deal.Type, Scope = deal.Scope,
+            Percent = deal.Percent is { } p ? Format.Number(p) : null, Amount = deal.Amount is { } a ? Format.Number(a) : null,
+            BundlePrice = deal.BundlePrice is { } b ? Format.Number(b) : null, Buy = deal.BuyQuantity?.ToString(), Get = deal.GetQuantity?.ToString(),
+            GetPercent = deal.GetPercentOff is { } g ? Format.Number(g) : "100",
+            StartDate = deal.StartDate?.ToString("yyyy-MM-dd"), EndDate = deal.EndDate?.ToString("yyyy-MM-dd"),
+            StartTime = deal.StartTime?.ToString("HH:mm"), EndTime = deal.EndTime?.ToString("HH:mm"), Days = deal.Days,
+            Coupon = deal.CouponCode, Minimum = deal.MinimumSubtotal is { } m ? Format.Number(m) : null, Combinable = deal.Combinable,
+            AllBranches = deal.AllBranches, BranchIds = deal.BranchIds.ToList(), Active = deal.IsActive,
+            Items = deal.Items.Select(i => new ItemRow { Part = (i.Group + 1).ToString(), Key = $"{i.MenuItemId}|{i.VariantId}", Quantity = i.Quantity.ToString() }).ToList()
+        };
+    }
+
+    private async Task SaveAsync()
+    {
+        var d = _draft!;
+        var items = d.Items.Where(r => !string.IsNullOrEmpty(r.Key)).Select(r =>
+        {
+            var parts = r.Key!.Split('|');
+            return new DealComponentDto(int.TryParse(r.Part, out var part) ? Math.Max(part - 1, 0) : 0, Guid.Parse(parts[0]),
+                Guid.TryParse(parts[1], out var variant) ? variant : null, int.TryParse(r.Quantity, out var qty) ? qty : 1);
+        }).ToList();
+
+        var request = new SaveDealRequest(d.Name ?? "", d.NameUr, d.Description, d.Type, d.Scope, d.Active, d.Combinable,
+            DateOnly.TryParse(d.StartDate, out var sd) ? sd : null, DateOnly.TryParse(d.EndDate, out var ed) ? ed : null, d.Days,
+            TimeOnly.TryParse(d.StartTime, out var st) ? st : null, TimeOnly.TryParse(d.EndTime, out var et) ? et : null,
+            string.IsNullOrWhiteSpace(d.Coupon) ? null : d.Coupon.Trim(), Format.ParseNumber(d.Minimum), Format.ParseNumber(d.Percent), Format.ParseNumber(d.Amount),
+            Format.ParseNumber(d.BundlePrice), int.TryParse(d.Buy, out var buy) ? buy : null, int.TryParse(d.Get, out var get) ? get : null,
+            Format.ParseNumber(d.GetPercent), d.AllBranches, d.BranchIds, items);
+
+        var ok = await RunAsync(async () =>
+        {
+            await Api.SaveDealAsync(d.Id, request);
+            _deals = await Api.GetDealsAsync();
+        }, T("common.saved"));
+        if (ok) _draft = null;
+    }
+}

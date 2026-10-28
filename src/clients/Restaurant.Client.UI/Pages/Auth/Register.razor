@@ -1,0 +1,41 @@
+@page "/app/register"
+@layout AuthLayout
+@inherits PageBase
+
+<PageTitle>@T("register.title")</PageTitle>
+
+<h1>@T("register.title")</h1>
+<p class="rp-muted">@T("register.subtitle")</p>
+
+@if (Error is not null)
+{
+    <Notice Kind="danger" Class="rp-mb">@Error</Notice>
+}
+
+<TextField Label="@T("register.restaurantName")" @bind-Value="_restaurant" Icon="restaurant-outline" Error="@FieldError("RestaurantName")" />
+<div class="rp-grid-2">
+    <TextField Label="@T("register.branchName")" @bind-Value="_branch" Placeholder="@T("register.branchPlaceholder")" />
+    <TextField Label="@T("register.city")" @bind-Value="_city" />
+</div>
+<TextField Label="@T("register.yourName")" @bind-Value="_name" Icon="person-outline" Error="@FieldError("FullName")" AutoComplete="name" />
+<TextField Label="@T("register.email")" @bind-Value="_email" Icon="mail-outline" Type="email" Dir="ltr" AutoComplete="email" Error="@FieldError("Email")" />
+<TextField Label="@T("register.phone")" @bind-Value="_phone" Icon="call-outline" Type="tel" Dir="ltr" InputMode="tel" Hint="@T("register.phoneHint")" />
+<TextField Label="@T("auth.password")" @bind-Value="_password" Icon="lock-closed-outline" Type="password" AutoComplete="new-password"
+           Hint="@T("auth.passwordRule")" Error="@FieldError("Password")" OnEnter="CreateAsync" />
+
+<RpButton Block Class="rp-mt" Loading="Busy" OnClick="CreateAsync">@T("register.create")</RpButton>
+<div class="rp-auth-alt">@T("register.haveAccount") <a href="app/login">@T("auth.signIn")</a></div>
+
+@code {
+    private string? _restaurant, _branch, _city, _name, _email, _phone, _password;
+
+    private async Task CreateAsync()
+    {
+        var request = new RegisterOwnerRequest(_name?.Trim() ?? "", _email?.Trim() ?? "", _phone, _password ?? "",
+            _restaurant?.Trim() ?? "", _branch, null, _city);
+        if (await RunAsync(() => Api.RegisterOwnerAsync(request)))
+        {
+            Nav.NavigateTo("app");
+        }
+    }
+}

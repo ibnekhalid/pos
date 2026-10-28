@@ -1,0 +1,166 @@
+@page "/app/kitchen"
+@inherits PageBase
+@implements IAsyncDisposable
+@using Restaurant.Contracts.Kitchen
+@using Restaurant.Contracts.Menu
+@inject LiveUpdates Live
+@inject UiInterop Ui
+@inject IKeyValueStore Store
+
+<PageTitle>@T("nav.kitchen")</PageTitle>
+
+@if (!User.Can(Permissions.Kitchen.View))
+{
+    <NoAccess />
+}
+else
+{
+    <div class="rp-kds-bar">
+        <h1 class="rp-grow">@T("nav.kitchen")</h1>
+        @if (_stations.Count > 0)
+        {
+            <select class="rp-branch-select" value="@(_stationId?.ToString() ?? "")" @onchange="SetStationAsync" aria-label="@T("kitchen.station")">
+                <option value="">@T("kitchen.allStations")</option>
+                @foreach (var station in _stations) { <option value="@station.Id">@station.Name</option> }
+            </select>
+        }
+        <RpButton Small Variant="@(_sound ? "secondary" : "ghost")" Icon="@(_sound ? "volume-high-outline" : "volume-mute-outline")" OnClick="ToggleSoundAsync">@T("kitchen.sound")</RpButton>
+        <span class="rp-hint">@(Live.IsConnected ? T("kitchen.live") : T("kitchen.polling"))</span>
+    </div>
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+    <div class="rp-kds">
+        @foreach (var column in new[] { KitchenTicketStatus.New, KitchenTicketStatus.Preparing, KitchenTicketStatus.Ready })
+        {
+            var tickets = _tickets.Where(t => t.Status == column).OrderByDescending(t => t.IsChange).ThenBy(t => t.SentAt).ToList();
+            <section class="rp-kds-col">
+                <h2>@T($"ticketStatus.{column}") <Badge>@tickets.Count</Badge></h2>
+                @foreach (var ticket in tickets)
+                {
+                    var minutes = (int)(DateTimeOffset.Now - ticket.SentAt).TotalMinutes;
+                    <article class="rp-ticket @(ticket.IsChange ? "change" : "") @(!ticket.IsChange && column != KitchenTicketStatus.Ready && minutes >= _lateMinutes ? "late" : "")">
+                        <header>
+                            <span class="rp-ticket-no">@ticket.OrderNumber</span>
+                            <span class="rp-grow">@T($"orderType.{ticket.OrderType}")@(ticket.TableLabel is null ? "" : $" · {T("receipt.table")} {ticket.TableLabel}")
+                                @if (ticket.Round > 1) { <span class="rp-hint">@T("kitchen.round", ("n", ticket.Round.ToString()))</span> }</span>
+                            <span class="rp-ticket-time">@T("kitchen.minutes", ("n", minutes.ToString()))</span>
+                        </header>
+                        @if (ticket.IsChange) { <div class="rp-ticket-change">@T("kitchen.changeNotice")</div> }
+                        <ul>
+                            @foreach (var item in ticket.Items)
+                            {
+                                <li class="@(item.Cancelled ? "cancelled" : "")">
+                                    <strong>@item.Quantity ×</strong> @item.Name
+                                    @foreach (var modifier in item.Modifiers) { <div class="rp-ticket-mod">+ @modifier</div> }
+                                    @if (item.Notes is not null) { <div class="rp-ticket-note">» @item.Notes</div> }
+                                </li>
+                            }
+                        </ul>
+                        @if (ticket.OrderNotes is not null) { <div class="rp-ticket-note">@ticket.OrderNotes</div> }
+                        @if (User.Can(Permissions.Kitchen.Update))
+                        {
+                            <footer>
+                                @if (ticket.IsChange)
+                                {
+                                    <RpButton Block Variant="danger" OnClick="() => MoveAsync(ticket, KitchenTicketStatus.Served)">@T("kitchen.gotIt")</RpButton>
+                                }
+                                else if (column == KitchenTicketStatus.New)
+                                {
+                                    <RpButton Block OnClick="() => MoveAsync(ticket, KitchenTicketStatus.Preparing)">@T("kitchen.start")</RpButton>
+                                }
+                                else if (column == KitchenTicketStatus.Preparing)
+                                {
+                                    <RpButton Block OnClick="() => MoveAsync(ticket, KitchenTicketStatus.Ready)">@T("kitchen.ready")</RpButton>
+                                }
+                                else
+                                {
+                                    <RpButton Block Variant="secondary" OnClick="() => MoveAsync(ticket, KitchenTicketStatus.Served)">@T("kitchen.bump")</RpButton>
+                                }
+                            </footer>
+                        }
+                    </article>
+                }
+            </section>
+        }
+    </div>
+}
+
+@code {
+    private const string SoundKey = "rp.kitchen.sound";
+    private IReadOnlyList<KitchenTicketDto> _tickets = [];
+    private IReadOnlyList<KitchenStationDto> _stations = [];
+    private Guid? _stationId;
+    private bool _sound = true;
+    private int _lateMinutes = 15;
+    private HashSet<Guid> _seen = [];
+    private Timer? _timer;
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Kitchen.View)) return;
+        if (_timer is null)
+        {
+            _stations = (await Api.GetStationsAsync()).Where(s => s.IsActive).ToList();
+            try
+            {
+                _sound = await Store.GetAsync(SoundKey) != "false";
+                if (Guid.TryParse(await Store.GetAsync("rp.kitchen.station"), out var station) && _stations.Any(s => s.Id == station)) _stationId = station;
+            }
+            catch { /* defaults */ }
+            if (User.CurrentBranch is { } branch)
+            {
+                try { _lateMinutes = (await Api.GetBranchAsync(branch.Id)).Settings.LateTicketMinutes; } catch { /* default */ }
+            }
+            Live.TicketsChanged += OnChanged;
+            Live.Reconnected += OnChanged;
+            // Redraw once connected, so the Live / Refreshing label is right.
+            _ = Live.EnsureConnectedAsync().ContinueWith(_ => InvokeAsync(StateHasChanged));
+            // Redraw the timers, and re-read in case a live hint was missed.
+            _timer = new Timer(_ => OnChanged(), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+        }
+
+        var tickets = await Api.GetKitchenTicketsAsync(_stationId);
+        var fresh = tickets.Where(t => t.Status == KitchenTicketStatus.New && !_seen.Contains(t.Id)).ToList();
+        if (_sound && _seen.Count > 0 && fresh.Count > 0) await Ui.BeepAsync();
+        _seen = tickets.Select(t => t.Id).ToHashSet();
+        if (_seen.Count == 0) _seen.Add(Guid.Empty); // later tickets count as new
+        _tickets = tickets;
+    }
+
+    private async Task MoveAsync(KitchenTicketDto ticket, KitchenTicketStatus status)
+    {
+        if (await RunAsync(() => Api.UpdateTicketAsync(ticket.Id, status)))
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SetStationAsync(ChangeEventArgs e)
+    {
+        _stationId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        try { await Store.SetAsync("rp.kitchen.station", _stationId?.ToString() ?? ""); } catch { /* not remembered */ }
+        await ReloadAsync();
+    }
+
+    private async Task ToggleSoundAsync()
+    {
+        _sound = !_sound;
+        try { await Store.SetAsync(SoundKey, _sound ? "true" : "false"); } catch { /* not remembered */ }
+        if (_sound) await Ui.BeepAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(async () =>
+    {
+        await ReloadAsync();
+        StateHasChanged();
+    });
+
+    public ValueTask DisposeAsync()
+    {
+        _timer?.Dispose();
+        Live.TicketsChanged -= OnChanged;
+        Live.Reconnected -= OnChanged;
+        base.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

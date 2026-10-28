@@ -1,0 +1,550 @@
+@page "/app/reports"
+@page "/app/reports/{Tab}"
+@inherits PageBase
+@inject UiInterop Ui
+@using System.Globalization
+@using Restaurant.Contracts.Inventory
+@using Restaurant.Contracts.Reports
+@using Restaurant.Contracts.Sessions
+@* Reports (PLAN.md section 14): one filter bar, a tab per report. The formulas are shown under the figures. *@
+
+<PageTitle>@T("nav.reports")</PageTitle>
+<PageHeader Title="@T("nav.reports")" Subtitle="@ScopeText">
+    <Actions>
+        @if (_tab != "days") { <RpButton Variant="ghost" Icon="print-outline" OnClick="PrintAsync" Disabled="Busy">@T("reports.print")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (Tabs.Count == 0)
+{
+    <NoAccess />
+}
+else
+{
+    <div class="rp-tabs">
+        @foreach (var tab in Tabs)
+        {
+            <button class="@(_tab == tab ? "active" : "")" @onclick="() => SwitchAsync(tab)">@T($"reports.tab.{tab}")</button>
+        }
+    </div>
+
+    @if (_tab != "days")
+    {
+        <section class="rp-panel rp-report-filters">
+            <div class="rp-row rp-wrap rp-mb">
+                @foreach (var preset in Presets)
+                {
+                    <RpButton Small Variant="@(IsPreset(preset) ? "primary" : "ghost")" OnClick="() => ApplyPresetAsync(preset)">@T($"reports.preset.{preset}")</RpButton>
+                }
+            </div>
+            <div class="rp-report-filter-grid">
+                <TextField Label="@T("reports.from")" Type="date" Value="@_from.ToString("yyyy-MM-dd")" ValueChanged="v => SetDate(v, true)" />
+                <TextField Label="@T("reports.to")" Type="date" Value="@_to.ToString("yyyy-MM-dd")" ValueChanged="v => SetDate(v, false)" />
+                @if (_tab != "inventory")
+                {
+                    @if (User.Branches.Count > 1)
+                    {
+                        <SelectField Label="@T("nav.branch")" Value="@BranchValue" ValueChanged="SetBranchScope" Options="BranchOptions" />
+                    }
+                    <SelectField Label="@T("reports.orderType")" @bind-Value="_orderType" Options="OrderTypeOptions" />
+                    <SelectField Label="@T("reports.cashier")" @bind-Value="_cashier" Options="CashierOptions" />
+                    @if (_tab == "payments")
+                    {
+                        <SelectField Label="@T("day.paymentMethod")" @bind-Value="_method" Options="MethodOptions" />
+                    }
+                }
+            </div>
+            <div class="rp-row rp-mt-sm">
+                <RpButton Icon="refresh-outline" Loading="Busy" OnClick="RunReportAsync">@T("reports.run")</RpButton>
+                @if (_tab == "inventory") { <span class="rp-hint">@T("reports.inventoryHint")</span> }
+            </div>
+        </section>
+    }
+
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+    @if (Loading)
+    {
+        <Loading />
+    }
+    else
+    {
+        <div id="rp-report" class="rp-report">
+            <div class="rp-report-print-title">
+                <h1>@T($"reports.tab.{_tab}") — @Brand.DisplayName</h1>
+                <p>@ScopeText</p>
+            </div>
+            @switch (_tab)
+            {
+                case "sales" when _sales is not null:
+                    var f = _sales.Figures;
+                    <div class="rp-stats">
+                        <div class="rp-stat"><span>@T("day.netSales")</span><strong>@Money(f.NetSales)</strong></div>
+                        <div class="rp-stat"><span>@T("day.billed")</span><strong>@Money(f.TotalBilled)</strong></div>
+                        <div class="rp-stat"><span>@T("day.orders")</span><strong>@f.OrderCount</strong></div>
+                        <div class="rp-stat"><span>@T("reports.averageOrder")</span><strong>@Money(f.AverageOrderValue)</strong></div>
+                        @if (f.Collected is { } collected) { <div class="rp-stat"><span>@T("day.collected")</span><strong>@Money(collected)</strong></div> }
+                    </div>
+                    <section class="rp-panel">
+                        <h2>@T("day.summary")</h2>
+                        <div class="rp-grid-2 rp-align-start">
+                            <table class="rp-table">
+                                <tbody>
+                                    <tr><td>@T("day.grossSales")</td><td class="rp-right">@Money(f.GrossSales)</td></tr>
+                                    <tr><td>− @T("reports.dealDiscounts")</td><td class="rp-right">@Money(f.DealDiscounts)</td></tr>
+                                    <tr><td>− @T("reports.manualDiscounts")</td><td class="rp-right">@Money(f.ManualDiscounts)</td></tr>
+                                    <tr class="rp-strong"><td>= @T("day.netSales")</td><td class="rp-right">@Money(f.NetSales)</td></tr>
+                                    <tr><td>+ @T("receipt.serviceCharge")</td><td class="rp-right">@Money(f.ServiceCharge)</td></tr>
+                                    <tr><td>+ @T("day.tax")</td><td class="rp-right">@Money(f.Tax)</td></tr>
+                                    <tr><td>± @T("receipt.rounding")</td><td class="rp-right">@Money(f.Rounding)</td></tr>
+                                    <tr class="rp-strong"><td>= @T("day.billed")</td><td class="rp-right">@Money(f.TotalBilled)</td></tr>
+                                    <tr><td>@T("reports.cancelledVoided", ("cancelled", f.CancelledCount.ToString()), ("voided", f.VoidedCount.ToString()))</td><td class="rp-right">@Money(f.VoidedValue)</td></tr>
+                                </tbody>
+                            </table>
+                            @if (_sales.Payments is { } methods)
+                            {
+                                <table class="rp-table">
+                                    <thead><tr><th>@T("day.paymentMethod")</th><th class="rp-right">@T("day.collected")</th><th class="rp-right">@T("receipt.refunded")</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var m in methods)
+                                        {
+                                            <tr><td>@m.Method <span class="rp-hint">× @m.Count</span></td><td class="rp-right">@Money(m.Collected)</td><td class="rp-right">@Money(m.Refunded)</td></tr>
+                                        }
+                                        <tr class="rp-strong"><td>@T("receipt.total")</td><td class="rp-right">@Money(f.Collected ?? 0)</td><td class="rp-right">@Money(f.Refunds ?? 0)</td></tr>
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                        <p class="rp-hint">@T("day.formulaHint") @T("reports.aovHint")</p>
+                    </section>
+                    @if (_sales.ByDay.Count > 1)
+                    {
+                        <section class="rp-panel">
+                            <h2>@T("reports.byDay")</h2>
+                            <table class="rp-table">
+                                <thead><tr><th>@T("day.date")</th><th class="rp-right">@T("day.orders")</th><th class="rp-right">@T("day.grossSales")</th><th class="rp-right">@T("day.discounts")</th><th class="rp-right">@T("day.netSales")</th><th class="rp-right">@T("day.tax")</th><th class="rp-right">@T("day.billed")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var d in _sales.ByDay)
+                                    {
+                                        <tr><td class="rp-nowrap">@DayText(d.Date)</td><td class="rp-right">@d.Orders</td><td class="rp-right">@Money(d.GrossSales)</td><td class="rp-right">@Money(d.Discounts)</td>
+                                            <td class="rp-right">@Money(d.NetSales)</td><td class="rp-right">@Money(d.Tax)</td><td class="rp-right rp-strong">@Money(d.TotalBilled)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </section>
+                    }
+                    break;
+
+                case "orders" when _orders is not null:
+                    <div class="rp-grid-2 rp-align-start">
+                        <section class="rp-panel">
+                            <h2>@T("reports.byType")</h2>
+                            <BarTable Rows="@Bars(_orders.ByType, "orderType")" />
+                        </section>
+                        <section class="rp-panel">
+                            <h2>@T("reports.byStatus")</h2>
+                            <BarTable Rows="@Bars(_orders.ByStatus, "orderStatus")" />
+                        </section>
+                        <section class="rp-panel">
+                            <h2>@T("reports.byHour")</h2>
+                            <BarTable Rows="@Bars(_orders.ByHour, null)" />
+                        </section>
+                        <section class="rp-panel">
+                            <h2>@T("reports.byWeekday")</h2>
+                            <BarTable Rows="@Bars(_orders.ByWeekday, "weekday")" />
+                        </section>
+                    </div>
+                    <section class="rp-panel">
+                        <h2>@T("reports.outstanding")</h2>
+                        @if (_orders.Outstanding.Count == 0)
+                        {
+                            <p class="rp-hint">@T("reports.noOutstanding")</p>
+                        }
+                        else
+                        {
+                            <table class="rp-table">
+                                <thead><tr><th>@T("reports.order")</th><th>@T("day.date")</th><th>@T("reports.orderType")</th><th>@T("reports.status")</th><th class="rp-right">@T("receipt.total")</th><th class="rp-right">@T("reports.paid")</th><th class="rp-right">@T("reports.balance")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var o in _orders.Outstanding)
+                                    {
+                                        <tr><td><a href="app/orders/@o.OrderId">@o.OrderNumber</a></td><td class="rp-nowrap">@DayText(o.BusinessDate)</td><td>@T($"orderType.{o.Type}")</td><td>@T($"orderStatus.{o.Status}")</td>
+                                            <td class="rp-right">@Money(o.Total)</td><td class="rp-right">@Money(o.Paid)</td><td class="rp-right rp-strong">@Money(o.Balance)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                    <section class="rp-panel">
+                        <h2>@T("reports.voids")</h2>
+                        @if (_orders.Voids.Count == 0)
+                        {
+                            <p class="rp-hint">@T("reports.noVoids")</p>
+                        }
+                        else
+                        {
+                            <table class="rp-table">
+                                <thead><tr><th>@T("reports.order")</th><th>@T("reports.what")</th><th class="rp-right">@T("reports.value")</th><th>@T("reports.reason")</th><th>@T("reports.when")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var v in _orders.Voids)
+                                    {
+                                        <tr>
+                                            <td><a href="app/orders/@v.OrderId">@v.OrderNumber</a></td>
+                                            <td>@T($"reports.void.{v.Kind}") @if (v.Kind == "voided_line") { <span class="rp-hint">@v.Quantity × @v.Description</span> }</td>
+                                            <td class="rp-right">@Money(v.Value)</td>
+                                            <td>@(v.Reason ?? "—")</td>
+                                            <td class="rp-nowrap">@Format.DateTime(v.At)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                    break;
+
+                case "products" when _products is not null:
+                    <section class="rp-panel">
+                        <h2>@T("reports.bestSellers")</h2>
+                        @if (_products.Items.Count == 0)
+                        {
+                            <p class="rp-hint">@T("reports.noSales")</p>
+                        }
+                        else
+                        {
+                            <table class="rp-table">
+                                <thead><tr><th>#</th><th>@T("reports.item")</th><th>@T("reports.category")</th><th class="rp-right">@T("reports.qty")</th><th class="rp-right">@T("day.grossSales")</th><th class="rp-right">@T("reports.share")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var (item, i) in _products.Items.Select((x, i) => (x, i)))
+                                    {
+                                        <tr><td class="rp-hint">@(i + 1)</td><td><span class="rp-strong">@item.Name</span> @if (item.Variant is not null) { <span class="rp-hint">@item.Variant</span> }</td>
+                                            <td>@item.Category</td><td class="rp-right">@item.Quantity</td><td class="rp-right">@Money(item.Gross)</td><td class="rp-right">@Percent(item.ShareOfGross)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                    <div class="rp-grid-2 rp-align-start">
+                        <section class="rp-panel">
+                            <h2>@T("reports.byCategory")</h2>
+                            <table class="rp-table">
+                                <thead><tr><th>@T("reports.category")</th><th class="rp-right">@T("reports.qty")</th><th class="rp-right">@T("day.grossSales")</th><th class="rp-right">@T("reports.share")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var c in _products.Categories)
+                                    {
+                                        <tr><td>@c.Category</td><td class="rp-right">@c.Quantity</td><td class="rp-right">@Money(c.Gross)</td><td class="rp-right">@Percent(c.ShareOfGross)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </section>
+                        <section class="rp-panel">
+                            <h2>@T("reports.deals")</h2>
+                            @if (_products.Deals.Count == 0)
+                            {
+                                <p class="rp-hint">@T("reports.noDeals")</p>
+                            }
+                            else
+                            {
+                                <table class="rp-table">
+                                    <thead><tr><th>@T("reports.deal")</th><th class="rp-right">@T("day.orders")</th><th class="rp-right">@T("reports.qty")</th><th class="rp-right">@T("reports.discountGiven")</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var d in _products.Deals)
+                                        {
+                                            <tr><td>@d.Name <span class="rp-hint">@T($"dealType.{d.Type}")</span></td><td class="rp-right">@d.Orders</td><td class="rp-right">@d.Quantity</td><td class="rp-right">@Money(d.Discount)</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </section>
+                    </div>
+                    <p class="rp-hint">@T("reports.productsHint")</p>
+                    break;
+
+                case "payments" when _payments is not null:
+                    <div class="rp-stats">
+                        <div class="rp-stat"><span>@T("day.collected")</span><strong>@Money(_payments.Collected)</strong></div>
+                        <div class="rp-stat"><span>@T("receipt.refunded")</span><strong>@Money(_payments.Refunded)</strong></div>
+                        <div class="rp-stat"><span>@T("reports.net")</span><strong>@Money(_payments.Net)</strong></div>
+                    </div>
+                    <div class="rp-grid-2 rp-align-start">
+                        <section class="rp-panel">
+                            <h2>@T("reports.byMethod")</h2>
+                            <table class="rp-table">
+                                <thead><tr><th>@T("day.paymentMethod")</th><th class="rp-right">@T("day.collected")</th><th class="rp-right">@T("receipt.refunded")</th><th class="rp-right">@T("reports.net")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var m in _payments.ByMethod)
+                                    {
+                                        <tr><td>@m.Method <span class="rp-hint">× @m.Count</span></td><td class="rp-right">@Money(m.Collected)</td><td class="rp-right">@Money(m.Refunded)</td><td class="rp-right rp-strong">@Money(m.Collected - m.Refunded)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </section>
+                        <section class="rp-panel">
+                            <h2>@T("reports.byCashier")</h2>
+                            <table class="rp-table">
+                                <thead><tr><th>@T("reports.cashier")</th><th class="rp-right">@T("reports.payments")</th><th class="rp-right">@T("day.collected")</th><th class="rp-right">@T("receipt.refunded")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var c in _payments.ByCashier)
+                                    {
+                                        <tr><td>@c.Name</td><td class="rp-right">@c.Count</td><td class="rp-right">@Money(c.Collected)</td><td class="rp-right">@Money(c.Refunded)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </section>
+                    </div>
+                    @if (_payments.ByDay.Count > 1)
+                    {
+                        <section class="rp-panel">
+                            <h2>@T("reports.byDay")</h2>
+                            <table class="rp-table">
+                                <thead><tr><th>@T("day.date")</th><th class="rp-right">@T("day.collected")</th><th class="rp-right">@T("receipt.refunded")</th><th class="rp-right">@T("reports.net")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var d in _payments.ByDay)
+                                    {
+                                        <tr><td class="rp-nowrap">@DayText(d.Date)</td><td class="rp-right">@Money(d.Collected)</td><td class="rp-right">@Money(d.Refunded)</td><td class="rp-right rp-strong">@Money(d.Collected - d.Refunded)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </section>
+                    }
+                    <section class="rp-panel">
+                        <h2>@T("reports.refunds")</h2>
+                        @if (_payments.Refunds.Count == 0)
+                        {
+                            <p class="rp-hint">@T("reports.noRefunds")</p>
+                        }
+                        else
+                        {
+                            <table class="rp-table">
+                                <thead><tr><th>@T("reports.order")</th><th>@T("day.paymentMethod")</th><th class="rp-right">@T("reports.value")</th><th>@T("reports.reason")</th><th>@T("reports.by")</th><th>@T("reports.when")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var r in _payments.Refunds)
+                                    {
+                                        <tr><td><a href="app/orders/@r.OrderId">@r.OrderNumber</a></td><td>@r.Method</td><td class="rp-right">@Money(r.Amount)</td><td>@r.Reason</td><td>@r.ByName</td><td class="rp-nowrap">@Format.DateTime(r.At)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                    <p class="rp-hint">@T("reports.paymentsHint")</p>
+                    break;
+
+                case "inventory" when _inventory is not null:
+                    <div class="rp-stats">
+                        <div class="rp-stat"><span>@T("reports.inventoryValue")</span><strong>@Money(_inventory.InventoryValue)</strong></div>
+                        <div class="rp-stat"><span>@T("reports.lowStock")</span><strong>@_inventory.LowStockCount</strong></div>
+                        <div class="rp-stat"><span>@T("reports.receivedValue")</span><strong>@Money(_inventory.ReceivedValue)</strong></div>
+                        <div class="rp-stat"><span>@T("reports.consumedValue")</span><strong>@Money(_inventory.ConsumedValue)</strong></div>
+                        <div class="rp-stat"><span>@T("reports.wastedValue")</span><strong>@Money(_inventory.WastedValue)</strong></div>
+                    </div>
+                    <section class="rp-panel">
+                        <h2>@T("reports.activity")</h2>
+                        @if (_inventory.Activity.Count == 0)
+                        {
+                            <p class="rp-hint">@T("reports.noActivity")</p>
+                        }
+                        else
+                        {
+                            <table class="rp-table">
+                                <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("movementType.Receipt")</th><th class="rp-right">@T("movementType.SaleConsumption")</th><th class="rp-right">@T("movementType.Wastage")</th><th class="rp-right">@T("movementType.Adjustment")</th><th class="rp-right">@T("movementType.CountVariance")</th></tr></thead>
+                                <tbody>
+                                    @foreach (var a in _inventory.Activity)
+                                    {
+                                        <tr>
+                                            <td class="rp-strong">@a.Name</td>
+                                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Received, a.BaseUnit)<span class="rp-hint">@Money(a.ReceivedValue)</span></td>
+                                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Consumed, a.BaseUnit)<span class="rp-hint">@Money(a.ConsumedValue)</span></td>
+                                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Wasted, a.BaseUnit)<span class="rp-hint">@Money(a.WastedValue)</span></td>
+                                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.Adjusted, a.BaseUnit)</td>
+                                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(a.CountVariance, a.BaseUnit)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                    <section class="rp-panel">
+                        <h2>@T("reports.currentStock")</h2>
+                        <table class="rp-table">
+                            <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("inventory.onHand")</th><th class="rp-right">@T("reports.reorderAt")</th><th class="rp-right">@T("inventory.value")</th></tr></thead>
+                            <tbody>
+                                @foreach (var level in _inventory.Levels.OrderByDescending(l => l.IsLow).ThenBy(l => l.Name))
+                                {
+                                    <tr>
+                                        <td><span class="rp-strong">@level.Name</span> @if (level.IsLow) { <Badge Kind="warning">@T("inventory.low")</Badge> }</td>
+                                        <td class="rp-right rp-nowrap @(level.OnHand < 0 ? "rp-error" : "")">@UnitCatalog.Describe(level.OnHand, level.BaseUnit)</td>
+                                        <td class="rp-right rp-nowrap">@UnitCatalog.Describe(level.ReorderLevel, level.BaseUnit)</td>
+                                        <td class="rp-right">@Money(level.Value)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </section>
+                    <p class="rp-hint">@T("reports.inventoryValueHint")</p>
+                    break;
+
+                case "days":
+                    <section class="rp-panel">
+                        <h2>@T("day.history")</h2>
+                        @if (_days.Count == 0)
+                        {
+                            <p class="rp-hint">@T("reports.noDays")</p>
+                        }
+                        else
+                        {
+                            <table class="rp-table">
+                                <thead><tr><th>@T("day.date")</th><th>@T("reports.status")</th><th class="rp-right">@T("day.billed")</th><th class="rp-right">@T("day.cashDifference")</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var d in _days)
+                                    {
+                                        <tr>
+                                            <td class="rp-nowrap">@DayText(d.BusinessDate)</td>
+                                            <td><Badge Kind="@(d.Status == SessionStatus.Open ? "success" : "neutral")">@T($"sessionStatus.{d.Status}")</Badge></td>
+                                            <td class="rp-right">@Money(d.TotalBilled)</td>
+                                            <td class="rp-right">@(d.CashDifference is { } diff ? Money(diff) : "—")</td>
+                                            <td class="rp-right"><a href="app/sessions/@d.Id">@T("day.viewReport")</a></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                    break;
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string? Tab { get; set; }
+
+    private static readonly string[] Presets = ["today", "yesterday", "week", "month", "lastMonth"];
+
+    private string _tab = "sales";
+    private DateOnly _from;
+    private DateOnly _to;
+    private bool _allBranches;
+    private string? _orderType = "";
+    private string? _cashier = "";
+    private string? _method = "";
+
+    private IReadOnlyList<ReportStaffDto> _staff = [];
+    private IReadOnlyList<PaymentMethodDto> _methods = [];
+    private SalesReportDto? _sales;
+    private OrdersReportDto? _orders;
+    private ProductsReportDto? _products;
+    private PaymentsReportDto? _payments;
+    private InventoryReportDto? _inventory;
+    private IReadOnlyList<SessionHistoryItemDto> _days = [];
+    private ReportScopeDto? _scope;
+
+    private bool CanSales => User.CanAny(Permissions.Reports.Sales, Permissions.Reports.Financial);
+
+    private List<string> Tabs
+    {
+        get
+        {
+            var tabs = new List<string>();
+            if (CanSales) tabs.AddRange(["sales", "orders", "products"]);
+            if (User.Can(Permissions.Reports.Financial)) tabs.Add("payments");
+            if (User.Can(Permissions.Reports.Inventory)) tabs.Add("inventory");
+            if (User.CanAny(Permissions.Reports.Sales, Permissions.Sessions.Close)) tabs.Add("days");
+            return tabs;
+        }
+    }
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
+
+    private string? ScopeText => _scope is null || _tab == "days" ? User.CurrentBranch?.Name
+        : $"{string.Join(", ", _scope.Branches)} · {(_scope.From == _scope.To ? DayText(_scope.From) : $"{DayText(_scope.From)} – {DayText(_scope.To)}")}";
+
+    protected override async Task LoadAsync()
+    {
+        (_from, _to) = PresetRange("today");
+        var tabs = Tabs;
+        _tab = Tab is not null && tabs.Contains(Tab) ? Tab : tabs.FirstOrDefault() ?? "sales";
+        if (tabs.Count == 0) return;
+
+        if (CanSales)
+        {
+            _staff = await Api.GetReportStaffAsync();
+            _methods = await Api.GetPaymentMethodsAsync();
+        }
+        await LoadTabAsync();
+    }
+
+    private async Task LoadTabAsync()
+    {
+        var filter = new ReportFilter(_from, _to, _allBranches && _tab != "inventory", null,
+            Enum.TryParse<OrderType>(_orderType, out var type) ? type : null,
+            Guid.TryParse(_cashier, out var cashier) ? cashier : null,
+            Guid.TryParse(_method, out var method) ? method : null);
+        switch (_tab)
+        {
+            case "sales": _sales = await Api.GetSalesReportAsync(filter); _scope = _sales.Scope; break;
+            case "orders": _orders = await Api.GetOrdersReportAsync(filter); _scope = _orders.Scope; break;
+            case "products": _products = await Api.GetProductsReportAsync(filter); _scope = _products.Scope; break;
+            case "payments": _payments = await Api.GetPaymentsReportAsync(filter); _scope = _payments.Scope; break;
+            case "inventory": _inventory = await Api.GetInventoryReportAsync(filter); _scope = _inventory.Scope; break;
+            case "days": _days = await Api.GetSessionHistoryAsync(); break;
+        }
+    }
+
+    private Task RunReportAsync() => RunAsync(LoadTabAsync);
+
+    private async Task SwitchAsync(string tab)
+    {
+        _tab = tab;
+        Nav.NavigateTo($"app/reports/{tab}", replace: true);
+        await RunReportAsync();
+    }
+
+    private Task ApplyPresetAsync(string preset)
+    {
+        (_from, _to) = PresetRange(preset);
+        return RunReportAsync();
+    }
+
+    private bool IsPreset(string preset) => PresetRange(preset) == (_from, _to);
+
+    private static (DateOnly From, DateOnly To) PresetRange(string preset)
+    {
+        var today = Today;
+        var monthStart = new DateOnly(today.Year, today.Month, 1);
+        return preset switch
+        {
+            "yesterday" => (today.AddDays(-1), today.AddDays(-1)),
+            "week" => (today.AddDays(-6), today),
+            "month" => (monthStart, today),
+            "lastMonth" => (monthStart.AddMonths(-1), monthStart.AddDays(-1)),
+            _ => (today, today)
+        };
+    }
+
+    private void SetDate(string? value, bool from)
+    {
+        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)) return;
+        if (from) _from = date; else _to = date;
+    }
+
+    private async Task PrintAsync() => await Ui.PrintElementAsync("rp-report", null);
+
+    private string BranchValue => _allBranches ? "all" : "this";
+
+    private void SetBranchScope(string? value) => _allBranches = value == "all";
+
+    private IEnumerable<(string, string)> BranchOptions => [("this", User.CurrentBranch?.Name ?? T("reports.thisBranch")), ("all", T("reports.allBranches"))];
+
+    private IEnumerable<(string, string)> OrderTypeOptions =>
+        new[] { ("", T("reports.any")) }.Concat(Enum.GetValues<OrderType>().Select(t => (t.ToString(), T($"orderType.{t}"))));
+
+    private IEnumerable<(string, string)> CashierOptions => new[] { ("", T("reports.anyone")) }.Concat(_staff.Select(s => (s.UserId.ToString(), s.Name)));
+
+    private IEnumerable<(string, string)> MethodOptions => new[] { ("", T("reports.any")) }.Concat(_methods.Select(m => (m.Id.ToString(), m.Name)));
+
+    /// <summary>Rows for a BarTable; keys are translated under the group (hours are shown as "14:00").</summary>
+    private List<(string, int, decimal)> Bars(IEnumerable<OrderCountDto> rows, string? group) =>
+        rows.Select(r => (group is null ? $"{r.Key}:00" : T($"{group}.{r.Key}"), r.Count, r.NetSales)).ToList();
+
+    private static string DayText(DateOnly date) => date.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture);
+
+    private static string Percent(decimal value) => value.ToString("0.#", CultureInfo.InvariantCulture) + "%";
+}

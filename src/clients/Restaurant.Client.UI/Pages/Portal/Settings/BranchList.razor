@@ -1,0 +1,66 @@
+@page "/app/settings/branches"
+@inherits PageBase
+
+<PageTitle>@T("branches.title")</PageTitle>
+<PageHeader Title="@T("branches.title")" Subtitle="@T("branches.summary")" BackHref="app/settings">
+    <Actions>
+        @if (User.Can(Permissions.Tenant.ManageBranches))
+        {
+            <RpButton Icon="add" OnClick="() => _adding = true">@T("branches.add")</RpButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && !_adding) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <div class="rp-list">
+        @foreach (var branch in _branches)
+        {
+            <a class="rp-list-item" href="@($"app/settings/branches/{branch.Id}")">
+                <Icon Name="storefront-outline" Size="24" />
+                <span class="rp-grow">
+                    <span class="rp-strong">@branch.Name</span>
+                    <span class="rp-hint">@string.Join(" · ", new[] { branch.Address, branch.City }.Where(s => !string.IsNullOrWhiteSpace(s)))</span>
+                </span>
+                @if (!branch.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                <Icon Name="chevron-forward" />
+            </a>
+        }
+    </div>
+}
+
+<Dialog @bind-Open="_adding" Title="@T("branches.add")" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <BranchForm @bind-Value="_new" Errors="FieldError" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _adding = false">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="CreateAsync">@T("branches.add")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private IReadOnlyList<BranchDto> _branches = [];
+    private bool _adding;
+    private SaveBranchRequest _new = new("", null, null, null, "");
+
+    protected override async Task LoadAsync() => _branches = await Api.GetBranchesAsync();
+
+    private async Task CreateAsync()
+    {
+        BranchDto? created = null;
+        if (await RunAsync(async () => created = await Api.CreateBranchAsync(_new)))
+        {
+            _adding = false;
+            _new = new("", null, null, null, "");
+            await User.LoadAsync();
+            Nav.NavigateTo($"app/settings/branches/{created!.Id}");
+        }
+    }
+}

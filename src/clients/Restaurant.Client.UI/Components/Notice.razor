@@ -1,0 +1,20 @@
+@* Inline info / success / warning / error strip. *@
+<div class="rp-notice @Kind @Class" role="@(Kind == "danger" ? "alert" : "status")">
+    <Icon Name="@IconName" Size="20" />
+    <div class="rp-grow">@ChildContent</div>
+</div>
+
+@code {
+    /// <summary>info, success, warning or danger.</summary>
+    [Parameter] public string Kind { get; set; } = "info";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string IconName => Kind switch
+    {
+        "danger" => "alert-circle-outline",
+        "warning" => "warning-outline",
+        "success" => "checkmark-circle-outline",
+        _ => "information-circle-outline"
+    };
+}

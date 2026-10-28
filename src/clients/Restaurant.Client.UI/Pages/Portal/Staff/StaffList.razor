@@ -1,0 +1,125 @@
+@page "/app/staff"
+@inherits PageBase
+
+<PageTitle>@T("staff.title")</PageTitle>
+<PageHeader Title="@T("staff.title")" Subtitle="@T("staff.summary")">
+    <Actions>
+        <a class="rp-btn ghost" href="app/staff/roles"><Icon Name="shield-checkmark-outline" /> @T("roles.title")</a>
+        @if (User.Can(Permissions.Staff.Manage))
+        {
+            <RpButton Icon="person-add-outline" OnClick="OpenAdd">@T("staff.add")</RpButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!User.Can(Permissions.Staff.View))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && !_adding) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <table class="rp-table rp-panel">
+        <thead><tr><th>@T("staff.name")</th><th>@T("staff.signsInWith")</th><th>@T("staff.roles")</th><th>@T("staff.branches")</th><th>@T("staff.status")</th></tr></thead>
+        <tbody>
+            @foreach (var member in _staff)
+            {
+                <tr class="rp-clickable" @onclick="@(() => Nav.NavigateTo($"app/staff/{member.MembershipId}"))">
+                    <td>
+                        <span class="rp-avatar small">@Format.Initials(member.DisplayName)</span>
+                        @member.DisplayName
+                        @if (member.IsOwner) { <Badge Kind="brand">@T("staff.owner")</Badge> }
+                    </td>
+                    <td dir="ltr" class="rp-hint">@(member.Email ?? member.Phone)</td>
+                    <td>@RoleNames(member)</td>
+                    <td>@BranchNames(member)</td>
+                    <td><StaffStatus Member="member" /></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<Dialog @bind-Open="_adding" Title="@(_invite is null ? T("staff.add") : T("staff.inviteTitle"))" Busy="Busy" Wide>
+    <ChildContent>
+        @if (_invite is not null)
+        {
+            <InviteCode Invite="_invite" />
+        }
+        else
+        {
+            @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+            <TextField Label="@T("staff.name")" @bind-Value="_name" Error="@FieldError("DisplayName")" />
+            <div class="rp-grid-2">
+                <TextField Label="@T("register.phone")" @bind-Value="_phone" Type="tel" Dir="ltr" InputMode="tel" />
+                <TextField Label="@T("register.email")" @bind-Value="_email" Type="email" Dir="ltr" Error="@FieldError("Email")" />
+            </div>
+            <p class="rp-hint">@T("staff.loginHint")</p>
+            <StaffAccessEditor Roles="_roles" Branches="_branches" @bind-RoleIds="_roleIds" @bind-AllBranches="_allBranches" @bind-BranchIds="_branchIds" />
+            @if (FieldError("RoleIds") is { } rolesError) { <div class="rp-error-text">@rolesError</div> }
+        }
+    </ChildContent>
+    <Footer>
+        @if (_invite is null)
+        {
+            <RpButton Variant="ghost" OnClick="() => _adding = false">@T("common.cancel")</RpButton>
+            <RpButton Loading="Busy" OnClick="CreateAsync">@T("staff.addAndInvite")</RpButton>
+        }
+        else
+        {
+            <RpButton OnClick="() => _adding = false">@T("common.done")</RpButton>
+        }
+    </Footer>
+</Dialog>
+
+@code {
+    private IReadOnlyList<StaffMemberDto> _staff = [];
+    private IReadOnlyList<RoleDto> _roles = [];
+    private IReadOnlyList<BranchDto> _branches = [];
+
+    private bool _adding;
+    private StaffInviteDto? _invite;
+    private string? _name, _phone, _email;
+    private HashSet<Guid> _roleIds = [];
+    private HashSet<Guid> _branchIds = [];
+    private bool _allBranches = true;
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Staff.View)) return;
+        _staff = await Api.GetStaffAsync();
+        _roles = await Api.GetRolesAsync();
+        _branches = await Api.GetBranchesAsync();
+    }
+
+    private string RoleNames(StaffMemberDto member) =>
+        string.Join(", ", member.RoleIds.Select(id => _roles.FirstOrDefault(r => r.Id == id)?.Name).Where(n => n is not null));
+
+    private string BranchNames(StaffMemberDto member) =>
+        member.AllBranches || member.IsOwner ? T("staff.allBranches")
+        : string.Join(", ", member.BranchIds.Select(id => _branches.FirstOrDefault(b => b.Id == id)?.Name ?? "…"));
+
+    private void OpenAdd()
+    {
+        Error = null;
+        _invite = null;
+        _name = _phone = _email = null;
+        _roleIds = [];
+        _allBranches = User.Me?.IsOwner == true || _branches.Count == 1;
+        _branchIds = User.CurrentBranch is { } b ? [b.Id] : [];
+        _adding = true;
+    }
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        _invite = await Api.CreateStaffAsync(new CreateStaffRequest(_name ?? "", Blank(_email), Blank(_phone),
+            _roleIds.ToList(), _allBranches, _allBranches ? [] : _branchIds.ToList()));
+        _staff = await Api.GetStaffAsync();
+    });
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}

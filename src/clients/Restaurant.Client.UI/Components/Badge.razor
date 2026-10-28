@@ -1,0 +1,7 @@
+<span class="rp-badge @Kind">@ChildContent</span>
+
+@code {
+    /// <summary>neutral, success, warning, danger or brand.</summary>
+    [Parameter] public string Kind { get; set; } = "neutral";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

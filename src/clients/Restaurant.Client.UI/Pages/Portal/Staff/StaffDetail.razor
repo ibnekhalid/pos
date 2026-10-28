@@ -1,0 +1,107 @@
+@page "/app/staff/{MembershipId:guid}"
+@inherits PageBase
+
+<PageTitle>@(_member?.DisplayName ?? T("staff.title"))</PageTitle>
+<PageHeader Title="@(_member?.DisplayName ?? T("staff.title"))" BackHref="app/staff" />
+
+@if (!User.Can(Permissions.Staff.View))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else if (_member is null)
+{
+    <Notice Kind="danger">@Error</Notice>
+}
+else
+{
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (_member.IsOwner && !User.IsOwner)
+    {
+        <Notice Kind="info" Class="rp-mb">@T("staff.ownerOnly")</Notice>
+    }
+
+    <div class="rp-grid-2 rp-align-start">
+        <section class="rp-panel">
+            <div class="rp-row rp-mb">
+                <span class="rp-avatar large">@Format.Initials(_member.DisplayName)</span>
+                <div class="rp-grow">
+                    <div dir="ltr" class="rp-hint">@_member.Email</div>
+                    <div dir="ltr" class="rp-hint">@_member.Phone</div>
+                    <StaffStatus Member="_member" />
+                </div>
+            </div>
+            <TextField Label="@T("staff.name")" @bind-Value="_name" Disabled="!CanEdit" Error="@FieldError("DisplayName")" />
+            <StaffAccessEditor Roles="_roles" Branches="_branches" @bind-RoleIds="_roleIds" @bind-AllBranches="_allBranches" @bind-BranchIds="_branchIds" Disabled="!CanEdit" />
+            <CheckBox Label="@T("staff.disabled")" Hint="@T("staff.disabledHint")" @bind-Value="_disabled" Disabled="!CanEdit" />
+            @if (CanEdit)
+            {
+                <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+            }
+        </section>
+
+        <section class="rp-panel">
+            <h2>@T("staff.signInHelp")</h2>
+            @if (_invite is not null)
+            {
+                <InviteCode Invite="_invite" />
+            }
+            else
+            {
+                <p class="rp-muted">@(_member.Status == MembershipStatus.Invited ? T("staff.notAccepted") : T("staff.newCodeHint"))</p>
+                @if (CanEdit && _member.Status != MembershipStatus.Disabled)
+                {
+                    <RpButton Variant="secondary" Icon="key-outline" Loading="Busy" OnClick="NewCodeAsync">@T("staff.newCode")</RpButton>
+                }
+            }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid MembershipId { get; set; }
+
+    private StaffMemberDto? _member;
+    private IReadOnlyList<RoleDto> _roles = [];
+    private IReadOnlyList<BranchDto> _branches = [];
+    private StaffInviteDto? _invite;
+    private string? _name;
+    private HashSet<Guid> _roleIds = [];
+    private HashSet<Guid> _branchIds = [];
+    private bool _allBranches, _disabled;
+
+    /// <summary>The API makes the same checks; this only avoids offering what would be refused.</summary>
+    private bool CanEdit => User.Can(Permissions.Staff.Manage) && (!_member!.IsOwner || User.IsOwner);
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Staff.View)) return;
+        _roles = await Api.GetRolesAsync();
+        _branches = await Api.GetBranchesAsync();
+        Fill(await Api.GetStaffMemberAsync(MembershipId));
+    }
+
+    private void Fill(StaffMemberDto member)
+    {
+        _member = member;
+        _name = member.DisplayName;
+        _roleIds = member.RoleIds.ToHashSet();
+        _branchIds = member.BranchIds.ToHashSet();
+        _allBranches = member.AllBranches;
+        _disabled = member.Status == MembershipStatus.Disabled;
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+        Fill(await Api.UpdateStaffAsync(MembershipId, new UpdateStaffRequest(_name ?? "", _roleIds.ToList(), _allBranches,
+            _allBranches ? [] : _branchIds.ToList(), _disabled))), T("common.saved"));
+
+    private Task NewCodeAsync() => RunAsync(async () =>
+    {
+        _invite = await Api.ReissueInviteAsync(MembershipId);
+        Fill(_invite.Member);
+    });
+}

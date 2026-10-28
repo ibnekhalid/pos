@@ -1,0 +1,557 @@
+@page "/app/inventory"
+@inherits PageBase
+@using Restaurant.Contracts.Inventory
+@using Restaurant.Contracts.Menu
+
+<PageTitle>@T("nav.inventory")</PageTitle>
+<PageHeader Title="@T("nav.inventory")" Subtitle="@T("inventory.subtitle", ("branch", User.CurrentBranch?.Name ?? ""))">
+    <Actions>
+        @if (_tab == "items" && CanManageItems) { <RpButton Icon="add" OnClick="() => EditItem(null)">@T("inventory.addItem")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (!CanView)
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    <div class="rp-tabs">
+        @foreach (var tab in Tabs)
+        {
+            <button class="@(_tab == tab ? "active" : "")" @onclick="() => SwitchAsync(tab)">@T($"inventory.tab.{tab}")</button>
+        }
+    </div>
+    @if (Error is not null && _itemDraft is null && _adjust is null && _recipe is null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+
+    @switch (_tab)
+    {
+        case "stock":
+            @if (_levels.Count == 0)
+            {
+                <EmptyState Icon="cube-outline" Title="@T("inventory.emptyTitle")" Text="@T("inventory.emptyText")" />
+            }
+            else
+            {
+                <table class="rp-table rp-panel">
+                    <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("inventory.onHand")</th><th class="rp-right">@T("inventory.avgCost")</th><th class="rp-right">@T("inventory.value")</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var level in _levels)
+                        {
+                            <tr>
+                                <td><span class="rp-strong">@level.Name</span> @if (level.IsLow) { <Badge Kind="warning">@T("inventory.low")</Badge> } <div class="rp-hint">@level.Category</div></td>
+                                <td class="rp-right rp-nowrap @(level.OnHand < 0 ? "rp-error" : "")">@UnitCatalog.Describe(level.OnHand, level.BaseUnit)</td>
+                                <td class="rp-right rp-nowrap">@CostText(level.AverageCost, level.BaseUnit)</td>
+                                <td class="rp-right">@Money(level.Value)</td>
+                                <td class="rp-right rp-nowrap">
+                                    @if (User.Can(Permissions.Inventory.Wastage)) { <RpButton Small Variant="ghost" OnClick="() => OpenAdjust(level, StockMovementType.Wastage)">@T("inventory.wastage")</RpButton> }
+                                    @if (User.Can(Permissions.Inventory.Adjust)) { <RpButton Small Variant="ghost" OnClick="() => OpenAdjust(level, StockMovementType.Adjustment)">@T("inventory.adjust")</RpButton> }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <p class="rp-hint rp-mt-sm">@T("inventory.totalValue", ("value", Money(_levels.Sum(l => l.Value))))</p>
+            }
+            break;
+
+        case "receive":
+            <section class="rp-panel">
+                <div class="rp-grid-2">
+                    <TextField Label="@T("inventory.supplier")" @bind-Value="_receipt.Supplier" MaxLength="100" />
+                    <TextField Label="@T("inventory.invoice")" @bind-Value="_receipt.Invoice" MaxLength="50" Dir="ltr" />
+                </div>
+                <div class="rp-label">@T("inventory.lines")</div>
+                @foreach (var line in _receipt.Lines)
+                {
+                    <div class="rp-row rp-mb rp-wrap">
+                        <select class="rp-input rp-boxed rp-grow" value="@line.ItemId" @onchange="e => { line.ItemId = e.Value?.ToString(); line.Unit = DefaultUnit(line.ItemId); }" aria-label="@T("inventory.item")">
+                            <option value="">@T("inventory.chooseItem")</option>
+                            @foreach (var item in ActiveItems) { <option value="@item.Id">@item.Name</option> }
+                        </select>
+                        <input class="rp-input rp-boxed" style="width:90px" inputmode="decimal" placeholder="@T("inventory.qty")" @bind="line.Quantity" aria-label="@T("inventory.qty")" />
+                        <UnitSelect Item="ItemFor(line.ItemId)" @bind-Value="line.Unit" />
+                        <input class="rp-input rp-boxed" style="width:120px" inputmode="decimal" placeholder="@T("inventory.costPer", ("unit", line.Unit ?? ""))" @bind="line.Cost" aria-label="@T("inventory.unitCost")" />
+                        <button class="rp-icon-btn" @onclick="() => _receipt.Lines.Remove(line)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                    </div>
+                }
+                <div class="rp-row">
+                    <RpButton Small Variant="secondary" Icon="add" OnClick="() => _receipt.Lines.Add(new ReceiptLine())">@T("inventory.addLine")</RpButton>
+                    <span class="rp-grow"></span>
+                    <span class="rp-strong">@T("inventory.receiptTotal", ("total", Money(_receipt.Total)))</span>
+                </div>
+                <TextField Class="rp-mt" Label="@T("inventory.notes")" @bind-Value="_receipt.Notes" MaxLength="300" />
+                <RpButton Loading="Busy" Icon="download-outline" OnClick="ReceiveAsync">@T("inventory.receive")</RpButton>
+            </section>
+            <h3 class="rp-mt">@T("inventory.recentReceipts")</h3>
+            <div class="rp-list">
+                @foreach (var r in _receipts)
+                {
+                    <div class="rp-list-item">
+                        <span class="rp-grow"><span class="rp-strong">@(r.Supplier ?? T("inventory.noSupplier"))</span>
+                            <span class="rp-hint">@Format.DateTime(r.At)@(r.InvoiceNumber is null ? "" : $" · {r.InvoiceNumber}") · @T("inventory.lineCount", ("n", r.LineCount.ToString()))@(r.ByName is null ? "" : $" · {r.ByName}")</span></span>
+                        <span>@Money(r.TotalCost)</span>
+                    </div>
+                }
+            </div>
+            break;
+
+        case "count":
+            <p class="rp-muted">@T("inventory.countHint")</p>
+            <table class="rp-table rp-panel">
+                <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("inventory.books")</th><th>@T("inventory.counted")</th></tr></thead>
+                <tbody>
+                    @foreach (var level in _levels)
+                    {
+                        var entry = _count.GetValueOrDefault(level.ItemId) ?? (_count[level.ItemId] = new CountEntry { Unit = level.BaseUnit });
+                        <tr>
+                            <td class="rp-strong">@level.Name</td>
+                            <td class="rp-right rp-nowrap">@UnitCatalog.Describe(level.OnHand, level.BaseUnit)</td>
+                            <td>
+                                <div class="rp-row">
+                                    <input class="rp-input rp-boxed" style="width:100px" inputmode="decimal" @bind="entry.Counted" aria-label="@T("inventory.counted")" />
+                                    <UnitSelect Item="ItemFor(level.ItemId.ToString())" @bind-Value="entry.Unit" />
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <TextField Class="rp-mt" Label="@T("inventory.notes")" @bind-Value="_countNotes" MaxLength="300" />
+            <RpButton Loading="Busy" Icon="checkmark-done-outline" Disabled="!_count.Values.Any(c => Format.ParseNumber(c.Counted) is not null)" OnClick="CountAsync">@T("inventory.postCount")</RpButton>
+            @if (_counts.Count > 0)
+            {
+                <h3 class="rp-mt">@T("inventory.pastCounts")</h3>
+                <div class="rp-list">
+                    @foreach (var c in _counts)
+                    {
+                        <div class="rp-list-item">
+                            <span class="rp-grow"><span class="rp-strong">@Format.DateTime(c.At)</span>
+                                <span class="rp-hint">@T("inventory.lineCount", ("n", c.Lines.Count.ToString()))@(c.ByName is null ? "" : $" · {c.ByName}")@(c.Notes is null ? "" : $" · {c.Notes}")</span></span>
+                            <span class="@(c.VarianceValue < 0 ? "rp-error" : "")">@Money(c.VarianceValue)</span>
+                        </div>
+                    }
+                </div>
+            }
+            break;
+
+        case "history":
+            <SelectField Label="@T("inventory.item")" Value="@_historyItem?.ToString()" ValueChanged="HistoryItemAsync"
+                         Options="@(new[] { ("", T("inventory.allItems")) }.Concat(_items.Select(i => (i.Id.ToString(), i.Name))))" />
+            <table class="rp-table rp-panel">
+                <thead><tr><th>@T("audit.when")</th><th>@T("inventory.item")</th><th>@T("inventory.movement")</th><th class="rp-right">@T("inventory.qty")</th><th>@T("inventory.reference")</th></tr></thead>
+                <tbody>
+                    @foreach (var m in _movements)
+                    {
+                        <tr>
+                            <td class="rp-nowrap">@Format.DateTime(m.At)</td>
+                            <td>@m.ItemName</td>
+                            <td><Badge Kind="@(m.Quantity < 0 ? "warning" : "success")">@T($"movementType.{m.Type}")</Badge></td>
+                            <td class="rp-right rp-nowrap" dir="ltr">@(m.Quantity > 0 ? "+" : "")@UnitCatalog.Describe(m.Quantity, m.BaseUnit)</td>
+                            <td><span>@(m.Reference is null ? "" : m.Reference)</span> <span class="rp-hint">@m.Reason@(m.ByName is null ? "" : $" · {m.ByName}")</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            break;
+
+        case "items":
+            <div class="rp-list">
+                @foreach (var item in _items)
+                {
+                    <button class="rp-list-item @(item.IsActive ? "" : "rp-dim")" @onclick="() => EditItem(item)" disabled="@(!CanManageItems)">
+                        <Icon Name="cube-outline" Size="22" />
+                        <span class="rp-grow"><span class="rp-strong">@item.Name</span>
+                            <span class="rp-hint">@item.Category@(item.Category is null ? "" : " · ")@T("inventory.keptIn", ("unit", item.BaseUnit))@(item.Units.Count == 0 ? "" : " · " + string.Join(", ", item.Units.Select(u => $"{u.Name} = {Format.Number(u.FactorToBase)} {item.BaseUnit}")))</span></span>
+                        @if (!item.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                    </button>
+                }
+            </div>
+            break;
+
+        case "recipes":
+            <p class="rp-muted">@T("inventory.recipesHint")</p>
+            <div class="rp-list">
+                @foreach (var menuItem in _menuItems.Where(i => i.IsActive))
+                {
+                    <button class="rp-list-item" @onclick="() => OpenRecipe(menuItem.Id, null, null, menuItem.Name)" disabled="@(!CanEditRecipes)">
+                        <Icon Name="restaurant-outline" Size="22" />
+                        <span class="rp-grow"><span class="rp-strong">@menuItem.Name</span><span class="rp-hint">@RecipeSummary(menuItem)</span></span>
+                    </button>
+                }
+                @foreach (var group in _groups)
+                {
+                    foreach (var option in group.Options.Where(o => o.IsActive))
+                    {
+                        <button class="rp-list-item" @onclick="() => OpenRecipe(null, null, option.Id, option.Name)" disabled="@(!CanEditRecipes)">
+                            <Icon Name="add-circle-outline" Size="22" />
+                            <span class="rp-grow"><span class="rp-strong">@option.Name</span>
+                                <span class="rp-hint">@group.Name · @(LinesText(RecipeFor(null, null, option.Id)) ?? T("inventory.noRecipe"))</span></span>
+                        </button>
+                    }
+                }
+            </div>
+            break;
+    }
+}
+
+<Dialog Open="_adjust is not null" OpenChanged="open => { if (!open) _adjust = null; }" Title="@(_adjust is null ? "" : T(_adjust.Type == StockMovementType.Wastage ? "inventory.wastageTitle" : "inventory.adjustTitle", ("item", _adjust.Level.Name)))" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_adjust is { } a)
+        {
+            <p class="rp-hint">@T(a.Type == StockMovementType.Wastage ? "inventory.wastageHint" : "inventory.adjustHint")</p>
+            <div class="rp-row rp-mb">
+                <input class="rp-input rp-boxed rp-grow" inputmode="decimal" placeholder="@T("inventory.qty")" @bind="a.Quantity" aria-label="@T("inventory.qty")" />
+                <UnitSelect Item="ItemFor(a.Level.ItemId.ToString())" @bind-Value="a.Unit" />
+            </div>
+            <TextField Label="@T("inventory.reason")" @bind-Value="a.Reason" MaxLength="300" Error="@FieldError("Reason")" />
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _adjust = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="AdjustAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_itemDraft is not null" OpenChanged="open => { if (!open) _itemDraft = null; }" Title="@T(_itemDraft?.Id is null ? "inventory.addItem" : "inventory.editItem")" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_itemDraft is { } d)
+        {
+            <div class="rp-grid-2">
+                <TextField Label="@T("menu.name")" @bind-Value="d.Name" MaxLength="100" Error="@FieldError("Name")" />
+                <TextField Label="@T("menu.nameUr")" @bind-Value="d.NameUr" Dir="rtl" MaxLength="100" />
+                <SelectField Label="@T("inventory.baseUnit")" @bind-Value="d.BaseUnit" Hint="@T("inventory.baseUnitHint")" Error="@FieldError("BaseUnit")"
+                             Options="@(UnitCatalog.BaseUnits.Select(u => (u, T($"unit.{u}"))))" />
+                <TextField Label="@T("inventory.category")" @bind-Value="d.Category" MaxLength="60" />
+                <TextField Label="@T("inventory.reorderLevel", ("unit", d.BaseUnit ?? ""))" @bind-Value="d.Reorder" InputMode="decimal" Dir="ltr" />
+            </div>
+            <div class="rp-label">@T("inventory.packs")</div>
+            <p class="rp-hint">@T("inventory.packsHint")</p>
+            @foreach (var pack in d.Units)
+            {
+                <div class="rp-row rp-mb">
+                    <input class="rp-input rp-boxed rp-grow" placeholder="@T("inventory.packName")" @bind="pack.Name" aria-label="@T("inventory.packName")" />
+                    <span>=</span>
+                    <input class="rp-input rp-boxed" style="width:110px" inputmode="decimal" @bind="pack.Factor" aria-label="@T("inventory.packSize")" />
+                    <span>@d.BaseUnit</span>
+                    <button class="rp-icon-btn" @onclick="() => d.Units.Remove(pack)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                </div>
+            }
+            @if (FieldError("Units") is { } unitsError) { <div class="rp-error-text">@unitsError</div> }
+            <RpButton Small Variant="secondary" Icon="add" OnClick="() => d.Units.Add(new PackDraft())">@T("inventory.addPack")</RpButton>
+            <CheckBox Label="@T("common.active")" @bind-Value="d.Active" />
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _itemDraft = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveItemAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_recipe is not null" OpenChanged="open => { if (!open) _recipe = null; }" Title="@T("inventory.recipeFor", ("name", _recipe?.Title ?? ""))" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @if (_recipe is { } r)
+        {
+            var variants = r.MenuItemId is { } id ? _menuItems.FirstOrDefault(i => i.Id == id)?.Variants.Where(v => v.IsActive).ToList() ?? [] : [];
+            @if (variants.Count > 0)
+            {
+                <div class="rp-segmented block rp-mb">
+                    <button class="@(r.VariantId is null ? "active" : "")" @onclick="() => SwitchRecipe(r, null)">@T("inventory.allSizes")</button>
+                    @foreach (var variant in variants)
+                    {
+                        <button class="@(r.VariantId == variant.Id ? "active" : "")" @onclick="() => SwitchRecipe(r, variant.Id)">@variant.Name</button>
+                    }
+                </div>
+                <p class="rp-hint">@T(r.VariantId is null ? "inventory.allSizesHint" : "inventory.sizeHint")</p>
+            }
+            @foreach (var line in r.Lines)
+            {
+                <div class="rp-row rp-mb">
+                    <select class="rp-input rp-boxed rp-grow" value="@line.ItemId" @onchange="e => { line.ItemId = e.Value?.ToString(); line.Unit = DefaultUnit(line.ItemId); }" aria-label="@T("inventory.item")">
+                        <option value="">@T("inventory.chooseItem")</option>
+                        @foreach (var item in ActiveItems) { <option value="@item.Id">@item.Name</option> }
+                    </select>
+                    <input class="rp-input rp-boxed" style="width:90px" inputmode="decimal" @bind="line.Quantity" aria-label="@T("inventory.qty")" />
+                    <UnitSelect Item="ItemFor(line.ItemId)" @bind-Value="line.Unit" />
+                    <button class="rp-icon-btn" @onclick="() => r.Lines.Remove(line)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                </div>
+            }
+            <RpButton Small Variant="secondary" Icon="add" OnClick="() => r.Lines.Add(new RecipeDraftLine())">@T("inventory.addIngredient")</RpButton>
+        }
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _recipe = null">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveRecipeAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private sealed class ReceiptLine
+    {
+        public string? ItemId { get; set; }
+        public string? Quantity { get; set; }
+        public string? Unit { get; set; }
+        public string? Cost { get; set; }
+    }
+
+    private sealed class ReceiptDraft
+    {
+        public string? Supplier { get; set; }
+        public string? Invoice { get; set; }
+        public string? Notes { get; set; }
+        public List<ReceiptLine> Lines { get; set; } = [new()];
+        public Guid RequestId { get; set; } = Guid.NewGuid();
+        public decimal Total => Lines.Sum(l => (Format.ParseNumber(l.Quantity) ?? 0) * (Format.ParseNumber(l.Cost) ?? 0));
+    }
+
+    private sealed class CountEntry
+    {
+        public string? Counted { get; set; }
+        public string? Unit { get; set; }
+    }
+
+    private sealed class AdjustDraft
+    {
+        public required StockLevelDto Level { get; init; }
+        public StockMovementType Type { get; init; }
+        public string? Quantity { get; set; }
+        public string? Unit { get; set; }
+        public string? Reason { get; set; }
+        public Guid RequestId { get; } = Guid.NewGuid();
+    }
+
+    private sealed class PackDraft
+    {
+        public string? Name { get; set; }
+        public string? Factor { get; set; }
+    }
+
+    private sealed class ItemDraft
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? NameUr { get; set; }
+        public string? BaseUnit { get; set; } = "g";
+        public string? Category { get; set; }
+        public string? Reorder { get; set; }
+        public bool Active { get; set; } = true;
+        public List<PackDraft> Units { get; set; } = [];
+    }
+
+    private sealed class RecipeDraftLine
+    {
+        public string? ItemId { get; set; }
+        public string? Quantity { get; set; }
+        public string? Unit { get; set; }
+    }
+
+    private sealed class RecipeDraft
+    {
+        public Guid? MenuItemId { get; set; }
+        public Guid? VariantId { get; set; }
+        public Guid? OptionId { get; set; }
+        public string Title { get; set; } = "";
+        public List<RecipeDraftLine> Lines { get; set; } = [];
+    }
+
+    private string _tab = "stock";
+    private IReadOnlyList<StockLevelDto> _levels = [];
+    private IReadOnlyList<InventoryItemDto> _items = [];
+    private IReadOnlyList<StockMovementDto> _movements = [];
+    private IReadOnlyList<StockReceiptDto> _receipts = [];
+    private IReadOnlyList<StockCountDto> _counts = [];
+    private IReadOnlyList<RecipeDto> _recipes = [];
+    private IReadOnlyList<MenuItemDto> _menuItems = [];
+    private IReadOnlyList<ModifierGroupDto> _groups = [];
+    private Guid? _historyItem;
+    private ReceiptDraft _receipt = new();
+    private Dictionary<Guid, CountEntry> _count = [];
+    private string? _countNotes;
+    private AdjustDraft? _adjust;
+    private ItemDraft? _itemDraft;
+    private RecipeDraft? _recipe;
+
+    private bool CanView => User.CanAny(Permissions.Inventory.Receive, Permissions.Inventory.Count, Permissions.Inventory.Wastage, Permissions.Inventory.Adjust, Permissions.Reports.Inventory);
+    private bool CanManageItems => User.CanAny(Permissions.Inventory.Adjust, Permissions.Menu.Manage);
+    private bool CanEditRecipes => User.Can(Permissions.Menu.Manage);
+
+    private IEnumerable<string> Tabs
+    {
+        get
+        {
+            yield return "stock";
+            if (User.Can(Permissions.Inventory.Receive)) yield return "receive";
+            if (User.Can(Permissions.Inventory.Count)) yield return "count";
+            yield return "history";
+            yield return "items";
+            if (User.CanAny(Permissions.Menu.Manage, Permissions.Inventory.Adjust, Permissions.Reports.Inventory)) yield return "recipes";
+        }
+    }
+
+    private IEnumerable<InventoryItemDto> ActiveItems => _items.Where(i => i.IsActive);
+
+    protected override async Task LoadAsync()
+    {
+        if (!CanView) return;
+        var levels = Api.GetStockLevelsAsync();
+        var items = Api.GetInventoryItemsAsync();
+        (_levels, _items) = (await levels, await items);
+        await LoadTabAsync();
+    }
+
+    private async Task LoadTabAsync()
+    {
+        switch (_tab)
+        {
+            case "receive": _receipts = await Api.GetStockReceiptsAsync(); break;
+            case "count": _counts = await Api.GetStockCountsAsync(); break;
+            case "history": _movements = await Api.GetStockMovementsAsync(_historyItem); break;
+            case "recipes":
+                var recipes = Api.GetRecipesAsync();
+                var menu = Api.GetMenuItemsAsync();
+                var groups = Api.GetModifierGroupsAsync();
+                (_recipes, _menuItems, _groups) = (await recipes, await menu, await groups);
+                break;
+        }
+    }
+
+    private async Task SwitchAsync(string tab)
+    {
+        _tab = tab;
+        Success = null;
+        await RunAsync(LoadTabAsync);
+    }
+
+    private Task HistoryItemAsync(string? value)
+    {
+        _historyItem = Guid.TryParse(value, out var id) ? id : null;
+        return RunAsync(LoadTabAsync);
+    }
+
+    private InventoryItemDto? ItemFor(string? id) => Guid.TryParse(id, out var guid) ? _items.FirstOrDefault(i => i.Id == guid) : null;
+
+    private string? DefaultUnit(string? itemId) => ItemFor(itemId)?.BaseUnit;
+
+    /// <summary>Per kg / l rather than per gram, so the numbers are the ones on the supplier's bill.</summary>
+    private string CostText(decimal perBase, string baseUnit) => baseUnit switch
+    {
+        "g" => $"{Money(perBase * 1000)}/kg",
+        "ml" => $"{Money(perBase * 1000)}/l",
+        _ => $"{Money(perBase)}/{baseUnit}"
+    };
+
+    private Task ReceiveAsync() => RunAsync(async () =>
+    {
+        var lines = _receipt.Lines.Where(l => ItemFor(l.ItemId) is not null)
+            .Select(l => new ReceiptLineRequest(Guid.Parse(l.ItemId!), Format.ParseNumber(l.Quantity) ?? 0, l.Unit ?? "", Format.ParseNumber(l.Cost) ?? 0)).ToList();
+        await Api.ReceiveStockAsync(new CreateStockReceiptRequest(_receipt.RequestId, _receipt.Supplier, _receipt.Invoice, _receipt.Notes, lines));
+        _receipt = new ReceiptDraft();
+        _levels = await Api.GetStockLevelsAsync();
+        _receipts = await Api.GetStockReceiptsAsync();
+    }, T("inventory.received"));
+
+    private Guid _countRequest = Guid.NewGuid();
+
+    private Task CountAsync() => RunAsync(async () =>
+    {
+        var lines = _count.Where(c => Format.ParseNumber(c.Value.Counted) is not null)
+            .Select(c => new StockCountLineRequest(c.Key, Format.ParseNumber(c.Value.Counted)!.Value, c.Value.Unit ?? "")).ToList();
+        var result = await Api.CountStockAsync(new CreateStockCountRequest(_countRequest, lines, _countNotes));
+        _countRequest = Guid.NewGuid();
+        _count = [];
+        _countNotes = null;
+        _levels = await Api.GetStockLevelsAsync();
+        _counts = await Api.GetStockCountsAsync();
+        Success = T("inventory.countPosted", ("value", Money(result.VarianceValue)));
+    });
+
+    private void OpenAdjust(StockLevelDto level, StockMovementType type)
+    {
+        Error = null;
+        _adjust = new AdjustDraft { Level = level, Type = type, Unit = level.BaseUnit };
+    }
+
+    private async Task AdjustAsync()
+    {
+        var a = _adjust!;
+        var ok = await RunAsync(async () =>
+        {
+            await Api.AdjustStockAsync(new StockAdjustmentRequest(a.RequestId, a.Level.ItemId, a.Type, Format.ParseNumber(a.Quantity) ?? 0, a.Unit ?? "", a.Reason ?? ""));
+            _levels = await Api.GetStockLevelsAsync();
+        }, T("common.saved"));
+        if (ok) _adjust = null;
+    }
+
+    private void EditItem(InventoryItemDto? item)
+    {
+        Error = null;
+        _itemDraft = item is null ? new ItemDraft() : new ItemDraft
+        {
+            Id = item.Id, Name = item.Name, NameUr = item.NameUr, BaseUnit = item.BaseUnit, Category = item.Category, Reorder = Format.Number(item.ReorderLevel),
+            Active = item.IsActive, Units = item.Units.Select(u => new PackDraft { Name = u.Name, Factor = Format.Number(u.FactorToBase) }).ToList()
+        };
+    }
+
+    private async Task SaveItemAsync()
+    {
+        var d = _itemDraft!;
+        var ok = await RunAsync(async () =>
+        {
+            await Api.SaveInventoryItemAsync(d.Id, new SaveInventoryItemRequest(d.Name ?? "", d.NameUr, d.BaseUnit ?? "", d.Category, Format.ParseNumber(d.Reorder) ?? 0, d.Active,
+                d.Units.Where(u => !string.IsNullOrWhiteSpace(u.Name)).Select(u => new InventoryItemUnitDto(u.Name!.Trim(), Format.ParseNumber(u.Factor) ?? 0)).ToList()));
+            var levels = Api.GetStockLevelsAsync();
+            var items = Api.GetInventoryItemsAsync();
+            (_levels, _items) = (await levels, await items);
+        }, T("common.saved"));
+        if (ok) _itemDraft = null;
+    }
+
+    private RecipeDto? RecipeFor(Guid? menuItemId, Guid? variantId, Guid? optionId) =>
+        _recipes.FirstOrDefault(r => r.MenuItemId == menuItemId && r.VariantId == variantId && r.ModifierOptionId == optionId);
+
+    private string? LinesText(RecipeDto? recipe) => recipe is null || recipe.Lines.Count == 0 ? null
+        : string.Join(", ", recipe.Lines.Select(l => $"{Format.Number(l.Quantity)} {l.Unit} {_items.FirstOrDefault(i => i.Id == l.InventoryItemId)?.Name}"));
+
+    private string RecipeSummary(MenuItemDto item)
+    {
+        var parts = new List<string>();
+        if (LinesText(RecipeFor(item.Id, null, null)) is { } all) parts.Add(all);
+        foreach (var variant in item.Variants)
+        {
+            if (LinesText(RecipeFor(item.Id, variant.Id, null)) is { } text) parts.Add($"{variant.Name}: {text}");
+        }
+        return parts.Count == 0 ? T("inventory.noRecipe") : string.Join(" · ", parts);
+    }
+
+    private void OpenRecipe(Guid? menuItemId, Guid? variantId, Guid? optionId, string title)
+    {
+        Error = null;
+        _recipe = new RecipeDraft { MenuItemId = menuItemId, OptionId = optionId, Title = title };
+        SwitchRecipe(_recipe, variantId);
+    }
+
+    private void SwitchRecipe(RecipeDraft draft, Guid? variantId)
+    {
+        draft.VariantId = variantId;
+        var lines = RecipeFor(draft.MenuItemId, variantId, draft.OptionId)?.Lines ?? [];
+        draft.Lines = lines.Select(l => new RecipeDraftLine { ItemId = l.InventoryItemId.ToString(), Quantity = Format.Number(l.Quantity), Unit = l.Unit }).ToList();
+        if (draft.Lines.Count == 0) draft.Lines.Add(new RecipeDraftLine());
+    }
+
+    private Task SaveRecipeAsync() => RunAsync(async () =>
+    {
+        var r = _recipe!;
+        var lines = r.Lines.Where(l => ItemFor(l.ItemId) is not null)
+            .Select(l => new RecipeLineDto(Guid.Parse(l.ItemId!), Format.ParseNumber(l.Quantity) ?? 0, l.Unit ?? "")).ToList();
+        await Api.SaveRecipeAsync(new RecipeDto(r.MenuItemId, r.VariantId, r.OptionId, lines));
+        _recipes = await Api.GetRecipesAsync();
+    }, T("common.saved"));
+}

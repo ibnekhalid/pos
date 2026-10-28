@@ -1,0 +1,35 @@
+@page "/app/settings"
+@inherits RpComponent
+@inject IPlatformInfo Platform
+
+<PageTitle>@T("settings.title")</PageTitle>
+<PageHeader Title="@T("settings.title")" />
+
+<div class="rp-tiles">
+    @foreach (var item in Items.Where(i => i.Permission is null || User.Can(i.Permission)))
+    {
+        <a class="rp-tile" href="@item.Href">
+            <Icon Name="@item.Icon" Size="28" Color="var(--rp-primary)" />
+            <span class="rp-strong">@T(item.TitleKey)</span>
+            <span class="rp-hint">@T(item.TextKey)</span>
+        </a>
+    }
+</div>
+<p class="rp-hint rp-mt">@T("settings.version", ("platform", Platform.Name), ("version", typeof(SettingsIndex).Assembly.GetName().Version?.ToString(3) ?? ""))</p>
+
+@code {
+    private sealed record Item(string Href, string Icon, string TitleKey, string TextKey, string? Permission);
+
+    private static readonly Item[] Items =
+    [
+        new("app/settings/account", "person-circle-outline", "account.title", "account.summary", null),
+        new("app/settings/business", "business-outline", "business.title", "business.summary", Permissions.Tenant.Manage),
+        new("app/settings/branches", "storefront-outline", "branches.title", "branches.summary", Permissions.Tenant.ManageSettings),
+        new("app/settings/tables", "grid-outline", "tables.title", "tables.summary", Permissions.Tenant.ManageSettings),
+        new("app/settings/taxes", "calculator-outline", "taxes.title", "taxes.summary", Permissions.Tenant.ManageSettings),
+        new("app/settings/payment-methods", "card-outline", "paymentMethods.title", "paymentMethods.summary", Permissions.Tenant.ManageSettings),
+        new("app/settings/branding", "color-palette-outline", "branding.title", "branding.summary", Permissions.Tenant.ManageBranding),
+        new("app/settings/devices", "desktop-outline", "devices.title", "devices.summary", Permissions.Tenant.ManageSettings),
+        new("app/settings/audit", "document-text-outline", "audit.title", "audit.summary", Permissions.Reports.Audit)
+    ];
+}

@@ -1,0 +1,124 @@
+@page "/app/menu/items/new"
+@page "/app/menu/items/{ItemId:guid}"
+@inherits PageBase
+@using Restaurant.Contracts.Menu
+
+<PageTitle>@(ItemId is null ? T("menu.addItem") : _name)</PageTitle>
+<PageHeader Title="@(ItemId is null ? T("menu.addItem") : _name ?? "")" BackHref="app/menu" />
+
+@if (!User.Can(Permissions.Menu.Manage))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    @if (_categories.Count == 0) { <Notice Kind="warning" Class="rp-mb">@T("menu.needCategory")</Notice> }
+
+    <div class="rp-grid-2 rp-align-start">
+        <section class="rp-panel">
+            <TextField Label="@T("menu.name")" @bind-Value="_name" Error="@FieldError("Name")" />
+            <TextField Label="@T("menu.nameUr")" @bind-Value="_nameUr" Dir="rtl" Hint="@T("menu.nameUrHint")" />
+            <div class="rp-grid-2">
+                <SelectField Label="@T("menu.category")" @bind-Value="_categoryId" Options="_categories.Select(c => (c.Id.ToString(), c.Name))" />
+                <SelectField Label="@T("menu.station")" @bind-Value="_stationId" Options="StationOptions" />
+            </div>
+            <TextField Label="@T("menu.description")" @bind-Value="_description" Multiline MaxLength="300" />
+            <div class="rp-grid-2">
+                <TextField Label="@T("menu.price")" @bind-Value="_price" InputMode="decimal" Dir="ltr" Disabled="_variants.Count > 0"
+                           Hint="@(_variants.Count > 0 ? T("menu.priceFromSizes") : null)" Error="@FieldError("Price")" />
+                <TextField Label="SKU" @bind-Value="_sku" Dir="ltr" />
+            </div>
+            <CheckBox Label="@T("menu.onMenu")" Hint="@T("menu.onMenuHint")" @bind-Value="_active" />
+        </section>
+
+        <div>
+            <section class="rp-panel">
+                <h2>@T("menu.sizes")</h2>
+                <p class="rp-hint">@T("menu.sizesHint")</p>
+                @foreach (var variant in _variants)
+                {
+                    <div class="rp-row rp-mb">
+                        <input class="rp-input rp-boxed rp-grow" placeholder="@T("menu.sizeName")" @bind="variant.Name" />
+                        <input class="rp-input rp-boxed" style="width:120px" placeholder="0" inputmode="decimal" @bind="variant.Price" />
+                        <button class="rp-icon-btn" @onclick="() => _variants.Remove(variant)" aria-label="@T("common.delete")"><Icon Name="trash-outline" /></button>
+                    </div>
+                }
+                <RpButton Small Variant="secondary" Icon="add" OnClick="() => _variants.Add(new VariantDraft())">@T("menu.addSize")</RpButton>
+            </section>
+
+            <section class="rp-panel">
+                <h2>@T("menu.tab.addons")</h2>
+                @if (_groups.Count == 0) { <p class="rp-hint">@T("menu.noAddons")</p> }
+                @foreach (var group in _groups)
+                {
+                    <CheckBox Label="@group.Name" Hint="@string.Join(", ", group.Options.Where(o => o.IsActive).Select(o => o.Name))"
+                              Value="_groupIds.Contains(group.Id)" ValueChanged="on => { if (on) _groupIds.Add(group.Id); else _groupIds.Remove(group.Id); }" />
+                }
+            </section>
+        </div>
+    </div>
+    <RpButton Icon="checkmark" Loading="Busy" Disabled="_categories.Count == 0" OnClick="SaveAsync">@T("common.save")</RpButton>
+}
+
+@code {
+    private sealed class VariantDraft
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Price { get; set; }
+    }
+
+    [Parameter] public Guid? ItemId { get; set; }
+
+    private IReadOnlyList<MenuCategoryDto> _categories = [];
+    private IReadOnlyList<ModifierGroupDto> _groups = [];
+    private IReadOnlyList<KitchenStationDto> _stations = [];
+    private string? _name, _nameUr, _categoryId, _stationId, _description, _price, _sku;
+    private bool _active = true;
+    private int _sort;
+    private List<VariantDraft> _variants = [];
+    private HashSet<Guid> _groupIds = [];
+
+    private IEnumerable<(string, string)> StationOptions =>
+        new[] { ("", T("menu.mainKitchen")) }.Concat(_stations.Where(s => s.IsActive).Select(s => (s.Id.ToString(), s.Name)));
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Menu.Manage)) return;
+        _categories = await Api.GetCategoriesAsync();
+        _groups = await Api.GetModifierGroupsAsync();
+        _stations = await Api.GetStationsAsync();
+        _categoryId = _categories.FirstOrDefault()?.Id.ToString();
+        _stationId = "";
+
+        if (ItemId is { } id)
+        {
+            var item = await Api.GetMenuItemAsync(id);
+            (_name, _nameUr, _description, _sku, _active, _sort) = (item.Name, item.NameUr, item.Description, item.Sku, item.IsActive, item.SortOrder);
+            _categoryId = item.CategoryId.ToString();
+            _stationId = item.KitchenStationId?.ToString() ?? "";
+            _price = Format.Number(item.Price);
+            _variants = item.Variants.Where(v => v.IsActive).Select(v => new VariantDraft { Id = v.Id, Name = v.Name, Price = Format.Number(v.Price) }).ToList();
+            _groupIds = item.ModifierGroupIds.ToHashSet();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = new SaveMenuItemRequest(Guid.Parse(_categoryId!), _name ?? "", Blank(_nameUr), Blank(_description), Blank(_sku),
+            Format.ParseNumber(_price) ?? 0, Guid.TryParse(_stationId, out var station) ? station : null, _sort, _active,
+            _variants.Where(v => !string.IsNullOrWhiteSpace(v.Name)).Select((v, i) => new SaveMenuItemVariantRequest(v.Id, v.Name!, null, Format.ParseNumber(v.Price) ?? 0, null, i)).ToList(),
+            _groupIds.ToList());
+        if (await RunAsync(() => Api.SaveMenuItemAsync(ItemId, request)))
+        {
+            Nav.NavigateTo("app/menu");
+        }
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}

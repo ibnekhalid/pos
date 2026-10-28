@@ -1,0 +1,114 @@
+@inherits RpComponent
+@using Restaurant.Contracts.Deals
+@using Restaurant.Contracts.Menu
+@* A combo deal: one choice (with its size and add-ons) for each part of the deal. *@
+<Dialog Open="Entry is not null" OpenChanged="open => { if (!open) Close(); }" Title="@(Entry is null ? "" : DealName(Entry.Deal))">
+    <ChildContent>
+        @if (Entry is not null && Menu is not null)
+        {
+            @if (Entry.Deal.Description is not null) { <p class="rp-muted">@Entry.Deal.Description</p> }
+            @for (var g = 0; g < Entry.Groups.Count; g++)
+            {
+                var index = g;
+                var group = Entry.Groups[index];
+                var choice = Entry.Choices[index];
+                <div class="rp-label @(index > 0 ? "rp-mt" : "")">@T("deals.part", ("n", (index + 1).ToString()))@(group.First().Quantity > 1 ? $" × {group.First().Quantity}" : "")</div>
+                <div class="rp-choice-tiles">
+                    @foreach (var component in group)
+                    {
+                        var item = Menu.Items.FirstOrDefault(i => i.Id == component.MenuItemId);
+                        if (item is null) continue;
+                        var fixedSize = component.VariantId is { } v ? item.Variants.FirstOrDefault(x => x.Id == v) : null;
+                        var active = choice?.Item.Id == item.Id && (fixedSize is null || choice.Variant?.Id == fixedSize.Id);
+                        <button type="button" class="@(active ? "active" : "")" disabled="@(item.Availability != MenuAvailability.Available)"
+                                @onclick="() => Choose(index, item, fixedSize)">
+                            <span>@ItemName(item)@(fixedSize is null ? "" : $" ({fixedSize.Name})")</span>
+                        </button>
+                    }
+                </div>
+                @if (choice is not null)
+                {
+                    var allowsAnySize = group.Any(c => c.MenuItemId == choice.Item.Id && c.VariantId is null);
+                    @if (allowsAnySize && choice.Item.Variants.Count > 0)
+                    {
+                        <div class="rp-choice-tiles rp-mt-sm">
+                            @foreach (var variant in choice.Item.Variants)
+                            {
+                                <button type="button" class="@(choice.Variant?.Id == variant.Id ? "active" : "")" @onclick="() => choice.Variant = variant">@variant.Name</button>
+                            }
+                        </div>
+                    }
+                    @foreach (var modifierGroup in GroupsFor(choice.Item))
+                    {
+                        <div class="rp-hint rp-mt-sm">@(L.IsRtl && modifierGroup.NameUr is not null ? modifierGroup.NameUr : modifierGroup.Name)</div>
+                        <div class="rp-choice-tiles">
+                            @foreach (var option in modifierGroup.Options)
+                            {
+                                <button type="button" class="@(choice.Modifiers.Any(m => m.Id == option.Id) ? "active" : "")" @onclick="() => Toggle(choice, modifierGroup, option)">
+                                    <span>@(L.IsRtl && option.NameUr is not null ? option.NameUr : option.Name)</span>
+                                    @if (option.PriceDelta != 0) { <span class="rp-hint">+@Money(option.PriceDelta)</span> }
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+            }
+            <div class="rp-label rp-mt">@T("pos.quantity")</div>
+            <div class="rp-stepper">
+                <button type="button" @onclick="() => Entry.Quantity = Math.Max(1, Entry.Quantity - 1)">−</button>
+                <span>@Entry.Quantity</span>
+                <button type="button" @onclick="() => Entry.Quantity = Math.Min(20, Entry.Quantity + 1)">+</button>
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        @if (Entry is not null)
+        {
+            <RpButton Variant="ghost" OnClick="Close">@T("common.cancel")</RpButton>
+            <RpButton Disabled="!Valid" OnClick="ConfirmAsync">@T(IsEdit ? "common.save" : "pos.addToOrder") · @Money(Entry.Total)</RpButton>
+        }
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public DealCartEntry? Entry { get; set; }
+    [Parameter] public EventCallback<DealCartEntry?> EntryChanged { get; set; }
+    [Parameter] public PosMenuDto? Menu { get; set; }
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public EventCallback<DealCartEntry> OnConfirm { get; set; }
+
+    private bool Valid => Entry is not null && Entry.Choices.All(c => c is not null
+        && (c.Item.Variants.Count == 0 || c.Variant is not null)
+        && GroupsFor(c.Item).All(g => Count(c, g) >= g.MinSelect && Count(c, g) <= g.MaxSelect));
+
+    private IReadOnlyList<ModifierGroupDto> GroupsFor(PosMenuItemDto item) =>
+        item.ModifierGroupIds.Select(id => Menu!.ModifierGroups.FirstOrDefault(g => g.Id == id)).Where(g => g is not null).Select(g => g!).ToList();
+
+    private static int Count(CartLine line, ModifierGroupDto group) => line.Modifiers.Count(m => group.Options.Any(o => o.Id == m.Id));
+
+    private void Choose(int index, PosMenuItemDto item, MenuItemVariantDto? fixedSize)
+    {
+        if (Entry!.Choices[index] is { } current && current.Item.Id == item.Id && (fixedSize is null || current.Variant?.Id == fixedSize.Id)) return;
+        Entry.Choices[index] = new CartLine { Item = item, Variant = fixedSize ?? (item.Variants.Count == 1 ? item.Variants[0] : null) };
+    }
+
+    private static void Toggle(CartLine line, ModifierGroupDto group, ModifierOptionDto option)
+    {
+        if (line.Modifiers.RemoveAll(m => m.Id == option.Id) > 0) return;
+        if (group.MaxSelect == 1) line.Modifiers.RemoveAll(m => group.Options.Any(o => o.Id == m.Id));
+        else if (Count(line, group) >= group.MaxSelect) return;
+        line.Modifiers.Add(option);
+    }
+
+    private string DealName(DealDto deal) => L.IsRtl && deal.NameUr is not null ? deal.NameUr : deal.Name;
+    private string ItemName(PosMenuItemDto item) => L.IsRtl && item.NameUr is not null ? item.NameUr : item.Name;
+
+    private async Task ConfirmAsync()
+    {
+        if (!Valid) return;
+        await OnConfirm.InvokeAsync(Entry!);
+        await EntryChanged.InvokeAsync(null);
+    }
+
+    private void Close() => EntryChanged.InvokeAsync(null);
+}

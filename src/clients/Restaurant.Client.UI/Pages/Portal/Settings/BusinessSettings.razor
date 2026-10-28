@@ -1,0 +1,47 @@
+@page "/app/settings/business"
+@inherits PageBase
+
+<PageTitle>@T("business.title")</PageTitle>
+<PageHeader Title="@T("business.title")" BackHref="app/settings" />
+
+@if (!User.Can(Permissions.Tenant.Manage))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Success is not null) { <Notice Kind="success" Class="rp-mb">@Success</Notice> }
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <section class="rp-panel rp-narrow">
+        <TextField Label="@T("business.name")" @bind-Value="_name" Error="@FieldError("Name")" />
+        <TextField Label="@T("business.legalName")" @bind-Value="_legal" Hint="@T("business.legalHint")" />
+        <div class="rp-grid-2">
+            <TextField Label="@T("business.ntn")" @bind-Value="_ntn" Dir="ltr" Hint="@T("business.ntnHint")" />
+            <TextField Label="@T("business.strn")" @bind-Value="_strn" Dir="ltr" />
+        </div>
+        <p class="rp-hint">@T("business.currency", ("code", _currency))</p>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </section>
+}
+
+@code {
+    private string? _name, _legal, _ntn, _strn;
+    private string _currency = "PKR";
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Tenant.Manage)) return;
+        var tenant = await Api.GetTenantAsync();
+        (_name, _legal, _ntn, _strn, _currency) = (tenant.Name, tenant.LegalName, tenant.NtnNumber, tenant.StrnNumber, tenant.CurrencyCode);
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        var tenant = await Api.UpdateTenantAsync(new UpdateTenantRequest(_name ?? "", _legal, _ntn, _strn));
+        Brand.Apply(tenant);
+    }, T("common.saved"));
+}

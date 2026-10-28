@@ -1,0 +1,18 @@
+@inherits RpComponent
+@* Name, address and order-number prefix of a branch (used by create and edit). *@
+<TextField Label="@T("branches.name")" Value="@Value.Name" ValueChanged="v => Set(Value with { Name = v ?? string.Empty })" Error="@Errors?.Invoke("Name")" />
+<TextField Label="@T("branches.address")" Value="@Value.Address" ValueChanged="v => Set(Value with { Address = v })" />
+<div class="rp-grid-2">
+    <TextField Label="@T("register.city")" Value="@Value.City" ValueChanged="v => Set(Value with { City = v })" />
+    <TextField Label="@T("register.phone")" Value="@Value.Phone" ValueChanged="v => Set(Value with { Phone = v })" Type="tel" Dir="ltr" />
+</div>
+<TextField Label="@T("branches.prefix")" Value="@Value.OrderNumberPrefix" ValueChanged="v => Set(Value with { OrderNumberPrefix = v ?? string.Empty })"
+           MaxLength="5" Dir="ltr" Hint="@T("branches.prefixHint")" Error="@Errors?.Invoke("OrderNumberPrefix")" />
+
+@code {
+    [Parameter] public SaveBranchRequest Value { get; set; } = new("", null, null, null, "");
+    [Parameter] public EventCallback<SaveBranchRequest> ValueChanged { get; set; }
+    [Parameter] public Func<string, string?>? Errors { get; set; }
+
+    private Task Set(SaveBranchRequest value) => ValueChanged.InvokeAsync(value);
+}

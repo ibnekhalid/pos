@@ -1,0 +1,65 @@
+@inherits RpComponent
+@inject RestaurantApi Api
+@* "Manager approval": shown only when the signed-in user lacks the permission. A manager picks their
+   name and enters their PIN on this screen; the server checks it (PLAN.md section 5). *@
+@if (!User.Can(Permission))
+{
+    <div class="rp-approval">
+        <div class="rp-label"><Icon Name="shield-checkmark-outline" /> @T("approval.needed")</div>
+        @if (_approvers is null)
+        {
+            <Loading />
+        }
+        else if (_approvers.Count == 0)
+        {
+            <Notice Kind="warning">@T("approval.nobody")</Notice>
+        }
+        else
+        {
+            <div class="rp-grid-2">
+                <SelectField Label="@T("approval.manager")" Value="@_membershipId" ValueChanged="SetManagerAsync"
+                             Options="_approvers.Select(a => (a.MembershipId.ToString(), a.DisplayName))" />
+                <TextField Label="@T("approval.pin")" Value="@_pin" ValueChanged="SetPinAsync" Type="password" InputMode="numeric" MaxLength="6" Dir="ltr" />
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<Restaurant.Contracts.Orders.ApproverDto>? _approvers;
+    private string? _membershipId;
+    private string? _pin;
+
+    [Parameter, EditorRequired] public string Permission { get; set; } = string.Empty;
+    [Parameter] public Restaurant.Contracts.Orders.Approval? Value { get; set; }
+    [Parameter] public EventCallback<Restaurant.Contracts.Orders.Approval?> ValueChanged { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (User.Can(Permission)) return;
+        try
+        {
+            _approvers = await Api.GetApproversAsync(Permission);
+            _membershipId = _approvers.FirstOrDefault()?.MembershipId.ToString();
+        }
+        catch
+        {
+            _approvers = [];
+        }
+    }
+
+    private Task SetManagerAsync(string? value)
+    {
+        _membershipId = value;
+        return PublishAsync();
+    }
+
+    private Task SetPinAsync(string? value)
+    {
+        _pin = value;
+        return PublishAsync();
+    }
+
+    private Task PublishAsync() => ValueChanged.InvokeAsync(
+        Guid.TryParse(_membershipId, out var id) && !string.IsNullOrEmpty(_pin) ? new Restaurant.Contracts.Orders.Approval(id, _pin) : null);
+}

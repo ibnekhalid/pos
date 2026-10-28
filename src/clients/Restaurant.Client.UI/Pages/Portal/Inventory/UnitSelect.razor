@@ -1,0 +1,25 @@
+@inherits RpComponent
+@using Restaurant.Contracts.Inventory
+@* The units a quantity of this stock item can be entered in: the standard ones of its kind plus its own pack sizes. *@
+<select class="rp-input rp-boxed" style="width:96px" value="@Value" @onchange="e => ValueChanged.InvokeAsync(e.Value?.ToString())" aria-label="@T("inventory.unit")" disabled="@(Item is null)">
+    @foreach (var unit in Units)
+    {
+        <option value="@unit">@unit</option>
+    }
+</select>
+
+@code {
+    [Parameter] public InventoryItemDto? Item { get; set; }
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    private IEnumerable<string> Units
+    {
+        get
+        {
+            if (Item is null) return [];
+            var dimension = UnitCatalog.Find(Item.BaseUnit)?.Dimension;
+            return UnitCatalog.All.Where(u => u.Dimension == dimension).Select(u => u.Code).Concat(Item.Units.Select(u => u.Name));
+        }
+    }
+}

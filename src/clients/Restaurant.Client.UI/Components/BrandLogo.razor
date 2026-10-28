@@ -1,0 +1,14 @@
+@inherits RpComponent
+@* The restaurant's logo, or its initials on the brand colour. *@
+@if (Brand.LogoUrl is not null)
+{
+    <img class="rp-logo" src="@Brand.LogoUrl" alt="" style="width:@(Size)px;height:@(Size)px" />
+}
+else
+{
+    <span class="rp-logo rp-logo-initials" style="width:@(Size)px;height:@(Size)px;font-size:@(Size * 0.42)px">@Format.Initials(Brand.DisplayName)</span>
+}
+
+@code {
+    [Parameter] public int Size { get; set; } = 36;
+}

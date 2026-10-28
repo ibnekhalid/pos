@@ -1,0 +1,60 @@
+@inherits RpComponent
+@using Restaurant.Contracts.System
+@inject RestaurantApi Api
+@inject IPlatformInfo Platform
+
+@* Desktop app only: a dismissible strip when a newer version is published (GET /api/desktop-release).
+   Never blocks the till — "required" only changes the wording. Checked once per app run. *@
+@if (_release is not null && !_dismissedThisRun)
+{
+    <Notice Kind="@(_required ? "danger" : "warning")" Class="rp-mb">
+        @(_required ? T("update.required", ("version", _release.LatestVersion!)) : T("update.available", ("version", _release.LatestVersion!)))
+        <a class="rp-link" href="@_release.DownloadUrl" target="_blank" rel="noopener">@T("update.download")</a>
+        · <button class="rp-link" @onclick="Dismiss">@T("update.later")</button>
+    </Notice>
+}
+
+@code {
+    // Shared by every layout instance: signing out and in again must not call the API again.
+    private static Task<DesktopReleaseDto?>? _check;
+    private static bool _dismissedThisRun;
+
+    private DesktopReleaseDto? _release;
+    private bool _required;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Platform.IsDesktop || !TryParse(Platform.AppVersion, out var current)) return;
+
+        var release = await (_check ??= CheckAsync());
+        if (release is null || !TryParse(release.LatestVersion, out var latest) || latest <= current) return;
+        if (!Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var url) || (url.Scheme != Uri.UriSchemeHttps && url.Scheme != Uri.UriSchemeHttp)) return;
+
+        _required = TryParse(release.MinimumVersion, out var minimum) && current < minimum;
+        _release = release;
+    }
+
+    private async Task<DesktopReleaseDto?> CheckAsync()
+    {
+        try
+        {
+            return await Api.GetDesktopReleaseAsync();
+        }
+        catch (Exception)
+        {
+            // Offline or an older API: no notice. The next app start checks again.
+            return null;
+        }
+    }
+
+    private void Dismiss() => _dismissedThisRun = true;
+
+    /// <summary>"0.3" and "0.3.1" style versions; a missing part counts as 0 so "0.3" equals "0.3.0".</summary>
+    private static bool TryParse(string? text, out Version version)
+    {
+        version = new Version(0, 0);
+        if (!Version.TryParse(text?.Trim().TrimStart('v', 'V'), out var parsed)) return false;
+        version = new Version(parsed.Major, parsed.Minor, Math.Max(parsed.Build, 0), Math.Max(parsed.Revision, 0));
+        return true;
+    }
+}

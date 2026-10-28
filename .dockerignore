@@ -1,0 +1,38 @@
+# Build context is the repo root (devops/Dockerfile). Keep it small: anything here would be
+# sent to the Docker daemon on every build and could invalidate cached layers.
+
+# Dependencies and build output
+**/bin
+**/obj
+
+# The native app isn't part of any image
+src/clients/Restaurant.Desktop
+
+# Local data, logs, uploads, test databases
+**/logs
+**/*.log
+src/api/Restaurant.Api/uploads
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Secrets / local env
+.env
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Git, IDE, tooling
+.git
+.github
+.claude
+**/.claude
+.vs
+.vscode
+.idea
+*.user
+
+# Tests and docs aren't part of the images
+tests
+*.md
+docker

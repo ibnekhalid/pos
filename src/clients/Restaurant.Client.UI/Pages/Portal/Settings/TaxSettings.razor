@@ -1,0 +1,130 @@
+@page "/app/settings/taxes"
+@inherits PageBase
+
+<PageTitle>@T("taxes.title")</PageTitle>
+<PageHeader Title="@T("taxes.title")" Subtitle="@T("taxes.summary")" BackHref="app/settings">
+    <Actions>
+        @if (CanEdit) { <RpButton Icon="add" OnClick="() => Open(null)">@T("taxes.add")</RpButton> }
+    </Actions>
+</PageHeader>
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null && !_open) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <Notice Class="rp-mb">@T("taxes.help")</Notice>
+    @if (_rates.Count == 0)
+    {
+        <EmptyState Icon="calculator-outline" Title="@T("taxes.none")" Text="@T("taxes.noneText")" />
+    }
+    else
+    {
+        <table class="rp-table rp-panel">
+            <thead><tr><th>@T("taxes.name")</th><th>@T("taxes.rate")</th><th>@T("taxes.appliesTo")</th><th>@T("taxes.payment")</th><th>@T("taxes.branch")</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var rate in _rates)
+                {
+                    <tr class="@(rate.IsActive ? "" : "rp-dim")">
+                        <td>
+                            @rate.Name
+                            @if (!rate.IsActive) { <Badge Kind="warning">@T("common.inactive")</Badge> }
+                        </td>
+                        <td dir="ltr">@Format.Number(rate.Percent)% <span class="rp-hint">@(rate.IsInclusive ? T("taxes.inclusive") : T("taxes.exclusive"))</span></td>
+                        <td>@OrderTypesText(rate.AppliesTo)</td>
+                        <td>@T($"taxScope.{rate.PaymentScope}")</td>
+                        <td>@(rate.BranchId is null ? T("taxes.allBranches") : _branches.FirstOrDefault(b => b.Id == rate.BranchId)?.Name)</td>
+                        <td class="rp-right">
+                            @if (CanEdit) { <button class="rp-icon-btn" @onclick="() => Open(rate)" aria-label="@T("common.edit")"><Icon Name="create-outline" /></button> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+<Dialog @bind-Open="_open" Title="@(_editing is null ? T("taxes.add") : T("taxes.edit"))" Busy="Busy">
+    <ChildContent>
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        <div class="rp-grid-2">
+            <TextField Label="@T("taxes.name")" @bind-Value="_name" Placeholder="GST" Error="@FieldError("Name")" />
+            <TextField Label="@T("taxes.percent")" @bind-Value="_percent" InputMode="decimal" Dir="ltr" Error="@FieldError("Percent")" />
+        </div>
+        <CheckBox Label="@T("taxes.inclusiveLabel")" Hint="@T("taxes.inclusiveHint")" @bind-Value="_inclusive" />
+        <div class="rp-label">@T("taxes.appliesTo")</div>
+        <div class="rp-row rp-wrap">
+            <CheckBox Label="@T("orderType.DineIn")" @bind-Value="_dineIn" />
+            <CheckBox Label="@T("orderType.Takeaway")" @bind-Value="_takeaway" />
+            <CheckBox Label="@T("orderType.Delivery")" @bind-Value="_delivery" />
+        </div>
+        @if (FieldError("AppliesTo") is { } appliesError) { <div class="rp-error-text">@appliesError</div> }
+        <div class="rp-grid-2">
+            <SelectField Label="@T("taxes.payment")" @bind-Value="_scope" Options="ScopeOptions" Hint="@T("taxes.paymentHint")" />
+            <SelectField Label="@T("taxes.branch")" @bind-Value="_branchId" Options="BranchOptions" />
+        </div>
+        <CheckBox Label="@T("common.active")" @bind-Value="_active" />
+    </ChildContent>
+    <Footer>
+        <RpButton Variant="ghost" OnClick="() => _open = false">@T("common.cancel")</RpButton>
+        <RpButton Loading="Busy" OnClick="SaveAsync">@T("common.save")</RpButton>
+    </Footer>
+</Dialog>
+
+@code {
+    private IReadOnlyList<TaxRateDto> _rates = [];
+    private IReadOnlyList<BranchDto> _branches = [];
+    private bool _open;
+    private TaxRateDto? _editing;
+    private string? _name, _percent, _scope, _branchId;
+    private bool _inclusive, _dineIn, _takeaway, _delivery, _active;
+
+    private bool CanEdit => User.Can(Permissions.Tenant.ManageSettings);
+
+    private IEnumerable<(string, string)> ScopeOptions => Enum.GetValues<TaxPaymentScope>().Select(v => (v.ToString(), T($"taxScope.{v}")));
+    private IEnumerable<(string, string)> BranchOptions =>
+        new[] { ("", T("taxes.allBranches")) }.Concat(_branches.Select(b => (b.Id.ToString(), b.Name)));
+
+    protected override async Task LoadAsync()
+    {
+        _rates = await Api.GetTaxRatesAsync();
+        _branches = await Api.GetBranchesAsync();
+    }
+
+    private string OrderTypesText(OrderTypes types) =>
+        types == OrderTypes.All ? T("taxes.allOrders")
+        : string.Join(", ", new[] { OrderTypes.DineIn, OrderTypes.Takeaway, OrderTypes.Delivery }.Where(t => types.HasFlag(t)).Select(t => T($"orderType.{t}")));
+
+    private void Open(TaxRateDto? rate)
+    {
+        Error = null;
+        _editing = rate;
+        _name = rate?.Name;
+        _percent = rate is null ? null : Format.Number(rate.Percent);
+        _inclusive = rate?.IsInclusive ?? false;
+        var types = rate?.AppliesTo ?? OrderTypes.All;
+        _dineIn = types.HasFlag(OrderTypes.DineIn);
+        _takeaway = types.HasFlag(OrderTypes.Takeaway);
+        _delivery = types.HasFlag(OrderTypes.Delivery);
+        _scope = (rate?.PaymentScope ?? TaxPaymentScope.Any).ToString();
+        _branchId = rate?.BranchId?.ToString() ?? "";
+        _active = rate?.IsActive ?? true;
+        _open = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        var types = (_dineIn ? OrderTypes.DineIn : 0) | (_takeaway ? OrderTypes.Takeaway : 0) | (_delivery ? OrderTypes.Delivery : 0);
+        var request = new SaveTaxRateRequest(_name ?? "", Format.ParseNumber(_percent) ?? -1, _inclusive, types,
+            Enum.Parse<TaxPaymentScope>(_scope!), Guid.TryParse(_branchId, out var b) ? b : null, _active);
+        var ok = await RunAsync(async () =>
+        {
+            if (_editing is null) await Api.CreateTaxRateAsync(request);
+            else await Api.UpdateTaxRateAsync(_editing.Id, request);
+            _rates = await Api.GetTaxRatesAsync();
+        }, T("common.saved"));
+        if (ok) _open = false;
+    }
+}

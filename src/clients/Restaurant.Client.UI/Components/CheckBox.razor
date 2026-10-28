@@ -1,0 +1,23 @@
+<div class="rp-check @(Value ? "checked" : "") @(Disabled ? "disabled" : "")" role="checkbox" aria-checked="@(Value ? "true" : "false")" aria-label="@Label" aria-disabled="@(Disabled ? "true" : "false")"
+     tabindex="0" @onclick="Toggle" @onkeydown="OnKey">
+    <Icon Name="@(Value ? "checkbox" : "square-outline")" Size="22" />
+    <div class="rp-grow">
+        <div>@Label</div>
+        @if (Hint is not null)
+        {
+            <div class="rp-hint">@Hint</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Value { get; set; }
+    [Parameter] public EventCallback<bool> ValueChanged { get; set; }
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Hint { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private Task Toggle() => Disabled ? Task.CompletedTask : ValueChanged.InvokeAsync(!Value);
+
+    private Task OnKey(KeyboardEventArgs e) => e.Key is " " or "Enter" ? Toggle() : Task.CompletedTask;
+}

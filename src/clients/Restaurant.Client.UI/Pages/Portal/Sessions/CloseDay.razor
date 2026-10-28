@@ -1,0 +1,134 @@
+@page "/app/sessions/close"
+@inherits PageBase
+@using Restaurant.Contracts.Sessions
+
+<PageTitle>@T("day.close")</PageTitle>
+<PageHeader Title="@T("day.close")" BackHref="app/sessions" Subtitle="@(_preview is null ? null : T("day.businessDate", ("date", _preview.Session.BusinessDate.ToString("dddd d MMM yyyy"))))" />
+
+@if (!User.Can(Permissions.Sessions.Close))
+{
+    <NoAccess />
+}
+else if (Loading)
+{
+    <Loading />
+}
+else if (_closed is not null)
+{
+    <Notice Kind="success" Class="rp-mb">@T("day.closedDone")</Notice>
+    <SessionSummary Summary="_closed.Summary" />
+    <a class="rp-btn secondary" href="@($"app/sessions/{_closed.Session.Id}")"><Icon Name="document-text-outline" /> @T("day.viewReport")</a>
+}
+else if (_preview is null)
+{
+    <Notice Kind="danger">@Error</Notice>
+}
+else
+{
+    <ol class="rp-wizard">
+        <li class="@(_preview.Blockers.Count == 0 ? "done" : "active")">@T("day.stepBlockers")</li>
+        <li class="@(_preview.Blockers.Count == 0 ? "active" : "")">@T("day.stepCount")</li>
+        <li>@T("day.stepConfirm")</li>
+    </ol>
+
+    @if (_preview.Blockers.Count > 0)
+    {
+        <section class="rp-panel">
+            <h2>@T("day.blockersTitle")</h2>
+            <p class="rp-muted">@T("day.blockersText")</p>
+            @foreach (var blocker in _preview.Blockers)
+            {
+                <a class="rp-check-item" href="@(blocker.OrderId is null ? "app/orders" : $"app/orders/{blocker.OrderId}")">
+                    <Icon Name="alert-circle-outline" Size="22" Color="var(--rp-warning)" />
+                    <span class="rp-grow">@T($"blocker.{blocker.Kind}", ("number", blocker.OrderNumber ?? ""))</span>
+                    <Icon Name="chevron-forward" />
+                </a>
+            }
+            <RpButton Variant="secondary" Class="rp-mt" Icon="refresh-outline" OnClick="ReloadAsync">@T("day.checkAgain")</RpButton>
+        </section>
+    }
+    else
+    {
+        @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+        @foreach (var register in _preview.Summary.Cash)
+        {
+            var count = _counts[register.RegisterSessionId];
+            var difference = count.Actual - register.ExpectedCash;
+            <section class="rp-panel">
+                <h2>@T("day.countRegister", ("name", register.RegisterName))</h2>
+                <div class="rp-grid-2 rp-align-start">
+                    <div>
+                        <table class="rp-table">
+                            <tbody>
+                                <tr><td>@T("day.openingCash")</td><td class="rp-right">@Money(register.OpeningCash)</td></tr>
+                                <tr><td>+ @T("day.cashSales")</td><td class="rp-right">@Money(register.CashSales)</td></tr>
+                                <tr><td>+ @T("cashType.CashIn")</td><td class="rp-right">@Money(register.CashIn)</td></tr>
+                                <tr><td>− @T("cashType.CashRefund")</td><td class="rp-right">@Money(register.CashRefunds)</td></tr>
+                                <tr><td>− @T("cashType.PaidOut")</td><td class="rp-right">@Money(register.PaidOuts)</td></tr>
+                                <tr class="rp-strong"><td>= @T("day.expectedCash")</td><td class="rp-right">@Money(register.ExpectedCash)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div>
+                        <div class="rp-denoms">
+                            @foreach (var note in Notes)
+                            {
+                                <label><span>@Format.Number(note) ×</span>
+                                    <input class="rp-input" inputmode="numeric" value="@(count.Notes.GetValueOrDefault(note) is var n && n > 0 ? n.ToString() : "")"
+                                           @oninput="e => SetNote(count, note, e.Value?.ToString())" /></label>
+                            }
+                            <label><span>@T("day.coins")</span>
+                                <input class="rp-input" inputmode="decimal" value="@(count.Coins > 0 ? Format.Number(count.Coins) : "")" @oninput="e => SetCoins(count, e.Value?.ToString())" /></label>
+                        </div>
+                        <div class="rp-cart-total"><span>@T("day.counted")</span><span>@Money(count.Actual)</span></div>
+                        <div class="rp-receipt-meta @(Math.Abs(difference) > _preview.DifferenceThreshold ? "rp-error" : "")"><span>@T("day.difference")</span><span>@Money(difference)</span></div>
+                        @if (Math.Abs(difference) > _preview.DifferenceThreshold)
+                        {
+                            <TextField Label="@T("day.differenceReason")" @bind-Value="count.Reason" Hint="@T("day.differenceHint", ("amount", Money(_preview.DifferenceThreshold)))" />
+                        }
+                    </div>
+                </div>
+            </section>
+        }
+
+        <SessionSummary Summary="_preview.Summary" />
+        <TextField Label="@T("day.notes")" @bind-Value="_notes" Multiline MaxLength="500" />
+        <RpButton Variant="danger" Icon="lock-closed-outline" Loading="Busy" OnClick="CloseAsync">@T("day.confirmClose")</RpButton>
+    }
+}
+
+@code {
+    private static readonly decimal[] Notes = [5000, 1000, 500, 100, 50, 20, 10];
+
+    private sealed class Count
+    {
+        public Dictionary<decimal, int> Notes { get; } = [];
+        public decimal Coins { get; set; }
+        public string? Reason { get; set; }
+        public decimal Actual => Notes.Sum(n => n.Key * n.Value) + Coins;
+    }
+
+    private ClosePreviewDto? _preview;
+    private ClosedSessionDto? _closed;
+    private readonly Dictionary<Guid, Count> _counts = [];
+    private string? _notes;
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Sessions.Close)) return;
+        _preview = await Api.GetClosePreviewAsync();
+        foreach (var register in _preview.Summary.Cash)
+        {
+            _counts.TryAdd(register.RegisterSessionId, new Count());
+        }
+    }
+
+    private static void SetNote(Count count, decimal note, string? text) => count.Notes[note] = int.TryParse(text, out var n) && n > 0 ? n : 0;
+
+    private static void SetCoins(Count count, string? text) => count.Coins = Format.ParseNumber(text) ?? 0;
+
+    private Task CloseAsync() => RunAsync(async () =>
+        _closed = await Api.CloseSessionAsync(new CloseSessionRequest(
+            _counts.Select(c => new RegisterCountRequest(c.Key, c.Value.Actual, string.IsNullOrWhiteSpace(c.Value.Reason) ? null : c.Value.Reason)).ToList(),
+            string.IsNullOrWhiteSpace(_notes) ? null : _notes)));
+}

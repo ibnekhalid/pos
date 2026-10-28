@@ -1,0 +1,38 @@
+@page "/app/accept-invite"
+@layout AuthLayout
+@inherits PageBase
+
+<PageTitle>@T("invite.title")</PageTitle>
+
+<h1>@T("invite.title")</h1>
+<p class="rp-muted">@T("invite.subtitle")</p>
+@if (Error is not null)
+{
+    <Notice Kind="danger" Class="rp-mb">@Error</Notice>
+}
+<TextField Label="@T("invite.code")" @bind-Value="_code" Icon="key-outline" Dir="ltr" Placeholder="ABCD-EFGH" MaxLength="12"
+           Class="rp-code-input" AutoComplete="one-time-code" />
+<TextField Label="@T("invite.password")" @bind-Value="_password" Icon="lock-closed-outline" Type="password" AutoComplete="new-password"
+           Hint="@T("invite.passwordHint")" Error="@FieldError("Password")" />
+<TextField Label="@T("invite.confirmPassword")" @bind-Value="_confirm" Icon="lock-closed-outline" Type="password" AutoComplete="new-password"
+           OnEnter="AcceptAsync" />
+<RpButton Block Class="rp-mt" Loading="Busy" OnClick="AcceptAsync">@T("invite.accept")</RpButton>
+<div class="rp-auth-alt"><a href="app/login">@T("auth.backToSignIn")</a></div>
+
+@code {
+    // No ?code= support on purpose: invite codes must not end up in URLs, browser history or logs.
+    private string? _code, _password, _confirm;
+
+    private async Task AcceptAsync()
+    {
+        if (_password != _confirm)
+        {
+            Error = T("invite.mismatch");
+            return;
+        }
+        if (await RunAsync(() => Api.AcceptInviteAsync(new AcceptInviteRequest(_code?.Trim() ?? "", _password ?? ""))))
+        {
+            Nav.NavigateTo("app");
+        }
+    }
+}

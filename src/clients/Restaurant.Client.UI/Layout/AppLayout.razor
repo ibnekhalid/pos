@@ -1,0 +1,245 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject SessionStore Session
+@inject UserContext User
+@inject BrandingState Brand
+@inject Localizer L
+@inject NavigationManager Nav
+@inject RestaurantApi Api
+@inject IPlatformInfo Platform
+@inject IWindowService Window
+@inject DeviceRegistration Device
+
+@* Signed-in shell: navigation (only what the user may use), branch switcher, user menu, and on the
+   desktop app the idle auto-lock. Themed by the restaurant's branding. *@
+@if (Session.IsSignedIn)
+{
+    <ActivityWatcher Class="rp-app" Style="@Brand.CssVariables" Dir="@L.Dir" OnActivity="Touch" OnKeyDown="OnKeyDownAsync">
+        <aside class="rp-nav @(_navOpen ? "open" : "")" aria-label="Main">
+            <div class="rp-nav-brand">
+                <BrandLogo Size="36" />
+                <div class="rp-grow rp-ellipsis">
+                    <div class="rp-strong rp-ellipsis">@Brand.DisplayName</div>
+                    <div class="rp-hint">@L["app.name"]</div>
+                </div>
+            </div>
+            @foreach (var section in AppSections.All.Where(Visible))
+            {
+                <NavLink class="rp-nav-link" href="@($"app/{section.Slug}".TrimEnd('/'))"
+                         Match="@(section.Slug == "" ? NavLinkMatch.All : NavLinkMatch.Prefix)" @onclick="() => _navOpen = false">
+                    <Icon Name="@section.Icon" Size="20" />
+                    <span class="rp-grow">@L[section.TitleKey]</span>
+                    @if (!section.Built)
+                    {
+                        <span class="rp-soon">@L["nav.soon"]</span>
+                    }
+                </NavLink>
+            }
+        </aside>
+        @if (_navOpen)
+        {
+            <div class="rp-nav-scrim" @onclick="() => _navOpen = false"></div>
+        }
+
+        <div class="rp-main-col">
+            <header class="rp-topbar">
+                <button class="rp-icon-btn rp-menu-btn" @onclick="() => _navOpen = !_navOpen" aria-label="@L["nav.menu"]"><Icon Name="menu-outline" Size="24" /></button>
+                @if (User.Branches.Count > 1)
+                {
+                    <select class="rp-branch-select" value="@Session.Current?.BranchId" @onchange="SwitchBranchAsync" aria-label="@L["nav.branch"]">
+                        @foreach (var branch in User.Branches)
+                        {
+                            <option value="@branch.Id">@branch.Name</option>
+                        }
+                    </select>
+                }
+                else if (User.CurrentBranch is not null)
+                {
+                    <span class="rp-topbar-branch"><Icon Name="storefront-outline" /> @User.CurrentBranch.Name</span>
+                }
+                <div class="rp-grow"></div>
+                @if (Device.Supported && Device.IsRegistered)
+                {
+                    <RpButton Variant="ghost" Small Icon="lock-closed-outline" OnClick="Session.Lock" Title="@L["lock.lockNow"]">@L["lock.lock"]</RpButton>
+                }
+                <div class="rp-user-menu">
+                    <button class="rp-user-btn" @onclick="() => _menuOpen = !_menuOpen" aria-expanded="@_menuOpen">
+                        <span class="rp-avatar">@Format.Initials(User.Me?.FullName)</span>
+                        <span class="rp-user-name rp-ellipsis">@User.Me?.FullName</span>
+                    </button>
+                    @if (_menuOpen)
+                    {
+                        <div class="rp-menu-scrim" @onclick="() => _menuOpen = false"></div>
+                        <div class="rp-menu" role="menu">
+                            <div class="rp-menu-head">
+                                <div class="rp-strong">@User.Me?.FullName</div>
+                                <div class="rp-hint">@Session.TenantName</div>
+                            </div>
+                            <a class="rp-menu-item" href="app/settings/account" @onclick="() => _menuOpen = false"><Icon Name="person-circle-outline" /> @L["account.title"]</a>
+                            <button class="rp-menu-item" @onclick="ToggleLanguageAsync"><Icon Name="language-outline" /> @(L.Language == "en" ? "اردو" : "English")</button>
+                            @if (Window.SupportsFullScreen)
+                            {
+                                <button class="rp-menu-item" @onclick="ToggleFullScreenAsync"><Icon Name="expand-outline" /> @L["nav.fullScreen"] <span class="rp-kbd">F11</span></button>
+                            }
+                            @if ((Session.Current?.Tenants.Count ?? 0) > 1)
+                            {
+                                <a class="rp-menu-item" href="app/select-restaurant" @onclick="() => _menuOpen = false"><Icon Name="swap-horizontal-outline" /> @L["nav.switchRestaurant"]</a>
+                            }
+                            <button class="rp-menu-item danger" @onclick="SignOutAsync"><Icon Name="log-out-outline" /> @L["nav.signOut"]</button>
+                        </div>
+                    }
+                </div>
+            </header>
+            <main class="rp-main">
+                <UpdateNotice />
+                @if (_loadError is not null)
+                {
+                    <Notice Kind="danger">@_loadError <button class="rp-link" @onclick="LoadUserAsync">@L["common.retry"]</button></Notice>
+                }
+                else if (User.Me is null)
+                {
+                    <Loading />
+                }
+                else
+                {
+                    @Body
+                }
+            </main>
+        </div>
+    </ActivityWatcher>
+
+    <PrintHost />
+
+    @if (Session.IsLocked)
+    {
+        <LockOverlay />
+    }
+}
+
+@code {
+    private bool _navOpen;
+    private bool _menuOpen;
+    private string? _loadError;
+    private DateTime _lastActivity = DateTime.UtcNow;
+    private Timer? _idleTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnSessionChanged;
+        User.Changed += Refresh;
+        Brand.Changed += Refresh;
+        L.Changed += Refresh;
+        Device.Changed += Refresh;
+
+        if (!EnsureSignedIn()) return;
+        await LoadUserAsync();
+
+        // Desktop counters lock themselves after the configured idle time.
+        if (Device.Supported)
+        {
+            _idleTimer = new Timer(_ => CheckIdle(), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+        }
+    }
+
+    private bool Visible(AppSections.Section section) => section.AnyOf.Length == 0 || User.CanAny(section.AnyOf);
+
+    private async Task LoadUserAsync()
+    {
+        _loadError = null;
+        try
+        {
+            // Together, so the first screen already shows the restaurant's name and colours.
+            await Task.WhenAll(
+                User.Me is null ? User.LoadAsync() : Task.CompletedTask,
+                Brand.Branding is null ? Brand.LoadAsync() : Task.CompletedTask);
+        }
+        catch (SessionExpiredException)
+        {
+            // SignOut already happened; OnSessionChanged redirects.
+        }
+        catch (NetworkException)
+        {
+            _loadError = L["common.networkError"];
+        }
+        catch (ApiException ex)
+        {
+            _loadError = ex.Message;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>Signed-out users go to sign-in; users of several restaurants choose one first.</summary>
+    private bool EnsureSignedIn()
+    {
+        if (Session.Current is null)
+        {
+            Nav.NavigateTo("app/login", replace: true);
+            return false;
+        }
+        if (Session.Current.RequiresTenantSelection)
+        {
+            Nav.NavigateTo("app/select-restaurant", replace: true);
+            return false;
+        }
+        return true;
+    }
+
+    private void OnSessionChanged() => InvokeAsync(async () =>
+    {
+        if (!EnsureSignedIn()) return;
+        if (User.Me is null && !Session.IsLocked) await LoadUserAsync();
+        StateHasChanged();
+    });
+
+    private void Touch() => _lastActivity = DateTime.UtcNow;
+
+    private void CheckIdle()
+    {
+        var minutes = Device.Prefs.AutoLockMinutes;
+        if (minutes > 0 && Device.IsRegistered && !Session.IsLocked && Session.IsSignedIn
+            && DateTime.UtcNow - _lastActivity > TimeSpan.FromMinutes(minutes))
+        {
+            InvokeAsync(Session.Lock);
+        }
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "F11" && Window.SupportsFullScreen) await Window.ToggleFullScreenAsync();
+    }
+
+    private async Task SwitchBranchAsync(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var branchId)) await User.SwitchBranchAsync(branchId);
+    }
+
+    private async Task ToggleLanguageAsync()
+    {
+        _menuOpen = false;
+        await L.SetLanguageAsync(L.Language == "en" ? "ur" : "en");
+    }
+
+    private async Task ToggleFullScreenAsync()
+    {
+        _menuOpen = false;
+        await Window.ToggleFullScreenAsync();
+    }
+
+    private async Task SignOutAsync()
+    {
+        _menuOpen = false;
+        await Api.LogoutAsync();
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        _idleTimer?.Dispose();
+        Session.Changed -= OnSessionChanged;
+        User.Changed -= Refresh;
+        Brand.Changed -= Refresh;
+        L.Changed -= Refresh;
+        Device.Changed -= Refresh;
+    }
+}

@@ -1,0 +1,24 @@
+@using System.Reflection
+@inject ClientStartup Startup
+
+@* Root component for both hosts: loads language, session and device registration, then routes. *@
+@if (_ready)
+{
+    <Routes AdditionalAssemblies="AdditionalAssemblies" />
+}
+else
+{
+    <div class="rp-boot"><span class="rp-spinner"></span></div>
+}
+
+@code {
+    private bool _ready;
+
+    [Parameter] public IEnumerable<Assembly> AdditionalAssemblies { get; set; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Startup.InitializeAsync();
+        _ready = true;
+    }
+}

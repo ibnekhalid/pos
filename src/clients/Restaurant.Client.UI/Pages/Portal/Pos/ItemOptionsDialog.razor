@@ -1,0 +1,101 @@
+@inherits RpComponent
+@using Restaurant.Contracts.Menu
+@* Size, add-ons, quantity and a note for one item. Add is enabled once the choices are valid. *@
+<Dialog Open="Line is not null" OpenChanged="open => { if (!open) Close(); }" Title="@(Line is null ? "" : ItemName(Line.Item))">
+    <ChildContent>
+        @if (Line is not null)
+        {
+            @if (Line.Item.Variants.Count > 0)
+            {
+                <div class="rp-label">@T("pos.size")</div>
+                <div class="rp-choice-tiles">
+                    @foreach (var variant in Line.Item.Variants)
+                    {
+                        <button type="button" class="@(Line.Variant?.Id == variant.Id ? "active" : "")" @onclick="() => Line.Variant = variant">
+                            <span>@(L.IsRtl && variant.NameUr is not null ? variant.NameUr : variant.Name)</span><span class="rp-hint">@Money(variant.Price)</span>
+                        </button>
+                    }
+                </div>
+            }
+            @foreach (var group in Groups)
+            {
+                <div class="rp-label rp-mt">
+                    @(L.IsRtl && group.NameUr is not null ? group.NameUr : group.Name)
+                    <span class="rp-hint">@Rule(group)</span>
+                </div>
+                <div class="rp-choice-tiles">
+                    @foreach (var option in group.Options)
+                    {
+                        <button type="button" class="@(Line.Modifiers.Any(m => m.Id == option.Id) ? "active" : "")" @onclick="() => Toggle(group, option)">
+                            <span>@(L.IsRtl && option.NameUr is not null ? option.NameUr : option.Name)</span>
+                            @if (option.PriceDelta != 0) { <span class="rp-hint">+@Money(option.PriceDelta)</span> }
+                        </button>
+                    }
+                </div>
+            }
+            <div class="rp-grid-2 rp-mt">
+                <div>
+                    <div class="rp-label">@T("pos.quantity")</div>
+                    <div class="rp-stepper">
+                        <button type="button" @onclick="() => Line.Quantity = Math.Max(1, Line.Quantity - 1)">−</button>
+                        <span>@Line.Quantity</span>
+                        <button type="button" @onclick="() => Line.Quantity = Math.Min(99, Line.Quantity + 1)">+</button>
+                    </div>
+                </div>
+                <TextField Label="@T("pos.note")" @bind-Value="Line.Notes" MaxLength="200" Placeholder="@T("pos.notePlaceholder")" />
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        @if (Line is not null)
+        {
+            <RpButton Variant="ghost" OnClick="Close">@T("common.cancel")</RpButton>
+            <RpButton Disabled="!Valid" OnClick="ConfirmAsync">@T(IsEdit ? "common.save" : "pos.addToOrder") · @Money(Line.Total)</RpButton>
+        }
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public CartLine? Line { get; set; }
+    [Parameter] public EventCallback<CartLine?> LineChanged { get; set; }
+    [Parameter] public IReadOnlyList<ModifierGroupDto> Groups { get; set; } = [];
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public EventCallback<CartLine> OnConfirm { get; set; }
+
+    private bool Valid => Line is not null
+        && (Line.Item.Variants.Count == 0 || Line.Variant is not null)
+        && Groups.All(g => Count(g) >= g.MinSelect && Count(g) <= g.MaxSelect);
+
+    private int Count(ModifierGroupDto group) => Line!.Modifiers.Count(m => group.Options.Any(o => o.Id == m.Id));
+
+    private string Rule(ModifierGroupDto g) =>
+        g.MinSelect == 0 ? T("pos.chooseUpTo", ("n", g.MaxSelect.ToString()))
+        : g.MinSelect == g.MaxSelect ? T("pos.chooseExactly", ("n", g.MinSelect.ToString()))
+        : T("pos.chooseBetween", ("min", g.MinSelect.ToString()), ("max", g.MaxSelect.ToString()));
+
+    private void Toggle(ModifierGroupDto group, ModifierOptionDto option)
+    {
+        var line = Line!;
+        if (line.Modifiers.RemoveAll(m => m.Id == option.Id) > 0) return;
+        if (group.MaxSelect == 1)
+        {
+            line.Modifiers.RemoveAll(m => group.Options.Any(o => o.Id == m.Id));
+        }
+        else if (Count(group) >= group.MaxSelect)
+        {
+            return;
+        }
+        line.Modifiers.Add(option);
+    }
+
+    private string ItemName(PosMenuItemDto item) => L.IsRtl && item.NameUr is not null ? item.NameUr : item.Name;
+
+    private async Task ConfirmAsync()
+    {
+        if (!Valid) return;
+        await OnConfirm.InvokeAsync(Line!);
+        await LineChanged.InvokeAsync(null);
+    }
+
+    private void Close() => LineChanged.InvokeAsync(null);
+}

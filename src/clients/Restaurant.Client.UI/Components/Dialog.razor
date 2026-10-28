@@ -1,0 +1,49 @@
+@inherits RpComponent
+@* Modal dialog. Esc or a click outside closes it (unless Busy). *@
+@if (Open)
+{
+    <div class="rp-overlay" @onclick="CloseAsync">
+        <div class="rp-dialog @(Wide ? "wide" : "")" role="dialog" aria-modal="true" aria-label="@Title"
+             tabindex="-1" @ref="_dialog" @onclick:stopPropagation="true" @onkeydown="OnKey">
+            <div class="rp-dialog-head">
+                <h2>@Title</h2>
+                <button class="rp-icon-btn" @onclick="CloseAsync" aria-label="@T("common.close")"><Icon Name="close" Size="22" /></button>
+            </div>
+            <div class="rp-dialog-body">@ChildContent</div>
+            @if (Footer is not null)
+            {
+                <div class="rp-dialog-foot">@Footer</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private ElementReference _dialog;
+    private bool _focused;
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public bool Wide { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Open && !_focused)
+        {
+            _focused = true;
+            try { await _dialog.FocusAsync(); } catch { /* not rendered yet */ }
+        }
+        else if (!Open)
+        {
+            _focused = false;
+        }
+    }
+
+    private Task CloseAsync() => Busy ? Task.CompletedTask : OpenChanged.InvokeAsync(false);
+
+    private Task OnKey(KeyboardEventArgs e) => e.Key == "Escape" ? CloseAsync() : Task.CompletedTask;
+}

@@ -1,0 +1,36 @@
+@inherits RpComponent
+@using Restaurant.Contracts.Sessions
+@* The day's figures, with the formulas spelled out (PLAN.md section 14). *@
+<section class="rp-panel">
+    <h2>@T("day.summary")</h2>
+    <div class="rp-grid-2 rp-align-start">
+        <table class="rp-table">
+            <tbody>
+                <tr><td>@T("day.orders")</td><td class="rp-right">@Summary.OrderCount</td></tr>
+                <tr><td>@T("day.grossSales")</td><td class="rp-right">@Money(Summary.GrossSales)</td></tr>
+                <tr><td>− @T("day.discounts")</td><td class="rp-right">@Money(Summary.Discounts)</td></tr>
+                <tr class="rp-strong"><td>= @T("day.netSales")</td><td class="rp-right">@Money(Summary.NetSales)</td></tr>
+                <tr><td>+ @T("receipt.serviceCharge")</td><td class="rp-right">@Money(Summary.ServiceCharge)</td></tr>
+                <tr><td>+ @T("day.tax")</td><td class="rp-right">@Money(Summary.Tax)</td></tr>
+                <tr><td>± @T("receipt.rounding")</td><td class="rp-right">@Money(Summary.Rounding)</td></tr>
+                <tr class="rp-strong"><td>= @T("day.billed")</td><td class="rp-right">@Money(Summary.TotalBilled)</td></tr>
+                <tr><td>@T("day.voids", ("n", Summary.CancelledOrVoidedCount.ToString()))</td><td class="rp-right">@Money(Summary.VoidedValue)</td></tr>
+            </tbody>
+        </table>
+        <table class="rp-table">
+            <thead><tr><th>@T("day.paymentMethod")</th><th class="rp-right">@T("day.collected")</th><th class="rp-right">@T("receipt.refunded")</th></tr></thead>
+            <tbody>
+                @foreach (var method in Summary.Payments)
+                {
+                    <tr><td>@method.Method <span class="rp-hint">× @method.Count</span></td><td class="rp-right">@Money(method.Collected)</td><td class="rp-right">@Money(method.Refunded)</td></tr>
+                }
+                <tr class="rp-strong"><td>@T("receipt.total")</td><td class="rp-right">@Money(Summary.Collected)</td><td class="rp-right">@Money(Summary.Refunds)</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="rp-hint">@T("day.formulaHint")</p>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public SessionSummaryDto Summary { get; set; } = default!;
+}

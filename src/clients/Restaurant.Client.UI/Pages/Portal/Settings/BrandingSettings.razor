@@ -1,0 +1,186 @@
+@page "/app/settings/branding"
+@inherits PageBase
+
+<PageTitle>@T("branding.title")</PageTitle>
+<PageHeader Title="@T("branding.title")" Subtitle="@T("branding.summary")" BackHref="app/settings" />
+
+@if (!User.Can(Permissions.Tenant.ManageBranding))
+{
+    <NoAccess />
+}
+else if (Loading || _form is null)
+{
+    @if (Error is not null) { <Notice Kind="danger">@Error</Notice> } else { <Loading /> }
+}
+else
+{
+    <div class="rp-split">
+        <div>
+            @if (Success is not null) { <div><Notice Kind="success" Class="rp-mb">@Success</Notice></div> }
+            @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+
+            <section class="rp-panel">
+                <h2>@T("branding.logo")</h2>
+                <div class="rp-row">
+                    @if (_logoUrl is not null)
+                    {
+                        <img src="@_logoUrl" alt="" class="rp-logo-preview" />
+                    }
+                    else
+                    {
+                        <span class="rp-logo-preview rp-logo-initials">@Format.Initials(_form.DisplayName ?? Brand.DisplayName)</span>
+                    }
+                    <label class="rp-btn secondary @(_uploading ? "disabled" : "")">
+                        <Icon Name="image-outline" /> @(_uploading ? T("branding.uploading") : T("branding.chooseLogo"))
+                        <InputFile OnChange="UploadLogoAsync" accept="image/png,image/jpeg,image/webp" class="rp-hidden" disabled="@_uploading" />
+                    </label>
+                </div>
+                <p class="rp-hint">@T("branding.logoHint")</p>
+            </section>
+
+            <section class="rp-panel">
+                <h2>@T("branding.colours")</h2>
+                <div class="rp-color-grid">
+                    <ColorField Label="@T("branding.primary")" @bind-Value="_form.PrimaryColor" />
+                    <ColorField Label="@T("branding.secondary")" @bind-Value="_form.SecondaryColor" />
+                    <ColorField Label="@T("branding.accent")" @bind-Value="_form.AccentColor" />
+                    <ColorField Label="@T("branding.text")" @bind-Value="_form.TextColor" />
+                    <ColorField Label="@T("branding.background")" @bind-Value="_form.BackgroundColor" />
+                </div>
+            </section>
+
+            <section class="rp-panel">
+                <h2>@T("branding.receiptText")</h2>
+                <TextField Label="@T("branding.displayName")" @bind-Value="_form.DisplayName" />
+                <TextField Label="@T("branding.tagline")" @bind-Value="_form.Tagline" />
+                <TextField Label="@T("branches.address")" @bind-Value="_form.DisplayAddress" />
+                <div class="rp-grid-2">
+                    <TextField Label="@T("register.phone")" @bind-Value="_form.DisplayPhone" Dir="ltr" />
+                    <TextField Label="@T("branding.whatsApp")" @bind-Value="_form.DisplayWhatsAppNumber" Dir="ltr" />
+                </div>
+                <TextField Label="@T("branding.header")" @bind-Value="_form.ReceiptHeader" Multiline MaxLength="500" Hint="@T("branding.headerHint")" />
+                <TextField Label="@T("branding.footer")" @bind-Value="_form.ReceiptFooter" Multiline MaxLength="500" Hint="@T("branding.footerHint")" />
+            </section>
+
+            <section class="rp-panel">
+                <h2>@T("branding.printing")</h2>
+                <div class="rp-grid-2">
+                    <SelectField Label="@T("branding.receiptTemplate")" @bind-Value="_form.ReceiptTemplateId" Options="TemplateOptions(ReceiptKind.CustomerReceipt)" />
+                    <SelectField Label="@T("branding.kitchenTemplate")" @bind-Value="_form.KitchenTemplateId" Options="TemplateOptions(ReceiptKind.KitchenTicket)" />
+                </div>
+                <SelectField Label="@T("branding.receiptLanguage")" @bind-Value="_form.ReceiptLanguage" Options="LanguageOptions" Hint="@T("branding.languageHint")" />
+            </section>
+
+            <RpButton Loading="Busy" Icon="checkmark" OnClick="SaveAsync">@T("common.save")</RpButton>
+        </div>
+
+        <aside class="rp-sticky">
+            <div class="rp-row rp-mb">
+                <h2 class="rp-grow">@T("branding.preview")</h2>
+                <div class="rp-segmented small">
+                    <button class="@(_paper == "80" ? "active" : "")" @onclick="@(() => _paper = "80")">80 mm</button>
+                    <button class="@(_paper == "58" ? "active" : "")" @onclick="@(() => _paper = "58")">58 mm</button>
+                </div>
+            </div>
+            <ReceiptPreview Branding="Preview" LogoUrl="@_logoUrl" Ntn="@Brand.Tenant?.NtnNumber" Paper="@_paper" />
+        </aside>
+    </div>
+}
+
+@code {
+    private BrandingDto? _saved;
+    private Form? _form;
+    private string? _logoUrl;
+    private bool _uploading;
+    private string _paper = "80";
+
+    /// <summary>Editable copy (BrandingDto is an immutable record).</summary>
+    private sealed class Form
+    {
+        public string PrimaryColor { get; set; } = "";
+        public string SecondaryColor { get; set; } = "";
+        public string AccentColor { get; set; } = "";
+        public string TextColor { get; set; } = "";
+        public string BackgroundColor { get; set; } = "";
+        public string? DisplayName { get; set; }
+        public string? Tagline { get; set; }
+        public string? DisplayAddress { get; set; }
+        public string? DisplayPhone { get; set; }
+        public string? DisplayWhatsAppNumber { get; set; }
+        public string? ReceiptHeader { get; set; }
+        public string? ReceiptFooter { get; set; }
+        public string? ReceiptLanguage { get; set; }
+        public string? ReceiptTemplateId { get; set; }
+        public string? KitchenTemplateId { get; set; }
+    }
+
+    private BrandingDto Preview => _saved! with
+    {
+        PrimaryColor = _form!.PrimaryColor, SecondaryColor = _form.SecondaryColor, AccentColor = _form.AccentColor,
+        TextColor = _form.TextColor, BackgroundColor = _form.BackgroundColor,
+        DisplayName = Blank(_form.DisplayName), Tagline = Blank(_form.Tagline), DisplayAddress = Blank(_form.DisplayAddress),
+        DisplayPhone = Blank(_form.DisplayPhone), ReceiptHeader = Blank(_form.ReceiptHeader), ReceiptFooter = Blank(_form.ReceiptFooter),
+        ReceiptLanguage = _form.ReceiptLanguage ?? "en"
+    };
+
+    private IEnumerable<(string, string)> LanguageOptions => [("en", "English"), ("ur", "اردو")];
+
+    private IEnumerable<(string, string)> TemplateOptions(ReceiptKind kind) =>
+        (_saved?.AvailableTemplates ?? []).Where(t => t.Kind == kind).Select(t => (t.Id.ToString(), t.Name));
+
+    protected override async Task LoadAsync()
+    {
+        if (!User.Can(Permissions.Tenant.ManageBranding)) return;
+        Fill(await Api.GetBrandingAsync());
+    }
+
+    private void Fill(BrandingDto b)
+    {
+        _saved = b;
+        _logoUrl = Api.ResolveUrl(b.LogoUrl);
+        _form = new Form
+        {
+            PrimaryColor = b.PrimaryColor, SecondaryColor = b.SecondaryColor, AccentColor = b.AccentColor,
+            TextColor = b.TextColor, BackgroundColor = b.BackgroundColor, DisplayName = b.DisplayName, Tagline = b.Tagline,
+            DisplayAddress = b.DisplayAddress, DisplayPhone = b.DisplayPhone, DisplayWhatsAppNumber = b.DisplayWhatsAppNumber,
+            ReceiptHeader = b.ReceiptHeader, ReceiptFooter = b.ReceiptFooter, ReceiptLanguage = b.ReceiptLanguage,
+            ReceiptTemplateId = b.DefaultReceiptTemplateId?.ToString(), KitchenTemplateId = b.DefaultKitchenTemplateId?.ToString()
+        };
+    }
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        var f = _form!;
+        var saved = await Api.UpdateBrandingAsync(new UpdateBrandingRequest(
+            f.PrimaryColor, f.SecondaryColor, f.AccentColor, f.TextColor, f.BackgroundColor,
+            Blank(f.DisplayName), Blank(f.Tagline), Blank(f.DisplayAddress), Blank(f.DisplayPhone), Blank(f.DisplayWhatsAppNumber),
+            _saved!.FooterText, Blank(f.ReceiptHeader), Blank(f.ReceiptFooter), f.ReceiptLanguage ?? "en", _saved.SocialLinksJson,
+            Guid.TryParse(f.ReceiptTemplateId, out var r) ? r : null, Guid.TryParse(f.KitchenTemplateId, out var k) ? k : null));
+        Fill(saved);
+        Brand.Apply(saved);   // re-themes the whole app right away
+    }, T("branding.saved"));
+
+    private async Task UploadLogoAsync(InputFileChangeEventArgs e)
+    {
+        const long maxBytes = 5 * 1024 * 1024;
+        if (e.File.Size > maxBytes)
+        {
+            Error = T("branding.logoTooBig");
+            return;
+        }
+        _uploading = true;
+        await RunAsync(async () =>
+        {
+            await using var stream = e.File.OpenReadStream(maxBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var saved = await Api.UploadLogoAsync(buffer.ToArray(), e.File.Name, e.File.ContentType);
+            _saved = _saved! with { LogoUrl = saved.LogoUrl };
+            _logoUrl = Api.ResolveUrl(saved.LogoUrl);
+            Brand.Apply(saved);
+        }, T("branding.logoSaved"));
+        _uploading = false;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}

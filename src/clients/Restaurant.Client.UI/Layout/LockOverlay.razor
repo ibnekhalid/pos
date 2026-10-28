@@ -1,0 +1,32 @@
+@inherits RpComponent
+@inject SessionStore Session
+@inject RestaurantApi Api
+@inject DeviceRegistration Device
+
+@* Covers the counter screen when it's locked (button or idle timeout). Any staff member with a PIN
+   can continue — the session switches to them — or someone can sign in with a password. *@
+<div class="rp-lock" style="@Brand.CssVariables" dir="@L.Dir">
+    <div class="rp-lock-card">
+        <div class="rp-center">
+            <BrandLogo Size="56" />
+            <h1 class="rp-mt-sm">@T("lock.title")</h1>
+            <p class="rp-muted">@Brand.DisplayName</p>
+        </div>
+        @if (Device.IsRegistered)
+        {
+            <PinSignIn OnSignedIn="UnlockedAsync" />
+        }
+        <RpButton Variant="ghost" Block Class="rp-mt" Icon="log-in-outline" OnClick="UsePasswordAsync">@T("lock.usePassword")</RpButton>
+    </div>
+</div>
+
+@code {
+    private async Task UnlockedAsync()
+    {
+        // PinLogin replaced the session (perhaps with another staff member): reload who they are.
+        await User.LoadAsync();
+        await Brand.LoadAsync();
+    }
+
+    private Task UsePasswordAsync() => Api.LogoutAsync();
+}

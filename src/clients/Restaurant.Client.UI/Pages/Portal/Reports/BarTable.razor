@@ -1,0 +1,28 @@
+@inherits RpComponent
+@* Count, a bar scaled to the largest net-sales value, and the value: orders by type, status, hour, weekday. *@
+@if (Rows.Count == 0)
+{
+    <p class="rp-hint">@T("reports.noSales")</p>
+}
+else
+{
+    var max = Math.Max(Rows.Max(r => r.Value), 1);
+    <table class="rp-table">
+        <thead><tr><th></th><th class="rp-right">@T("day.orders")</th><th style="width:40%"></th><th class="rp-right">@T("day.netSales")</th></tr></thead>
+        <tbody>
+            @foreach (var (label, count, value) in Rows)
+            {
+                <tr>
+                    <td class="rp-nowrap">@label</td>
+                    <td class="rp-right">@count</td>
+                    <td><div class="rp-bar"><span style="width:@((Math.Max(value, 0) / max * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></span></div></td>
+                    <td class="rp-right rp-nowrap">@Money(value)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<(string Label, int Count, decimal Value)> Rows { get; set; } = [];
+}
