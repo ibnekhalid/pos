@@ -17,7 +17,9 @@ public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionSto
     public const string ElementId = "rp-print-area";
 
     private TaskCompletionSource? _rendered;
-    private (Guid BranchId, RegisterDto? Register)? _register;
+    private static readonly TimeSpan RegisterCacheTime = TimeSpan.FromMinutes(5);
+
+    private (Guid BranchId, RegisterDto? Register, DateTimeOffset At)? _register;
 
     public ReceiptDocumentDto? Document { get; private set; }
 
@@ -81,16 +83,19 @@ public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionSto
 
     public void Rendered() => _rendered?.TrySetResult();
 
-    /// <summary>The branch's default register (its printers and drawer), cached per branch.</summary>
+    /// <summary>
+    /// The branch's default register (its printers and drawer), cached per branch for a few minutes, so a
+    /// printer change made on another PC reaches this one without restarting the app.
+    /// </summary>
     private async Task<RegisterDto?> RegisterAsync()
     {
         var branchId = session.Current?.BranchId;
         if (branchId is null) return null;
-        if (_register is { } cached && cached.BranchId == branchId) return cached.Register;
+        if (_register is { } cached && cached.BranchId == branchId && DateTimeOffset.UtcNow - cached.At < RegisterCacheTime) return cached.Register;
 
         var registers = await api.GetRegistersAsync(branchId.Value);
         var register = registers.FirstOrDefault(r => r.IsDefault);
-        _register = (branchId.Value, register);
+        _register = (branchId.Value, register, DateTimeOffset.UtcNow);
         return register;
     }
 

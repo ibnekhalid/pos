@@ -1,5 +1,6 @@
 @page "/app/settings/branches/{BranchId:guid}"
 @inherits PageBase
+@inject PrintService Printer
 
 <PageTitle>@(_branch?.Name ?? T("branches.title"))</PageTitle>
 <PageHeader Title="@(_branch?.Name ?? T("branches.title"))" BackHref="app/settings/branches" />
@@ -203,6 +204,7 @@ else
             if (_editingRegister is null) await Api.CreateRegisterAsync(BranchId, request);
             else await Api.UpdateRegisterAsync(BranchId, _editingRegister.Id, request);
             _registers = await Api.GetRegistersAsync(BranchId);
+            Printer.Forget(); // the next print reads the new printer names
         }, T("common.saved"));
         if (ok) _registerOpen = false;
     }

@@ -51,8 +51,8 @@ If no printer name is set, the desktop app falls back to the print dialog.
 **Which register's printers**: the app uses the printers of the branch's **default** register, whichever
 PC it runs on. With several counter PCs in one branch, give the printers the same Windows names on every
 PC (for example a shared network `Kitchen` printer, and a `Receipt` printer on each till). Per-PC printer
-settings are not built yet. The app reads the register's printers once per branch, so restart it on each
-counter PC after changing them.
+settings are not built yet. A change takes effect at once on the PC where it was saved, and within
+5 minutes on the other counter PCs (or straight away after restarting the app).
 
 **Network printers** (port 9100): add them in Windows as a "Standard TCP/IP port" printer with the
 Generic / Text Only driver, then use that name. Give the printer a fixed IP address (a DHCP reservation on

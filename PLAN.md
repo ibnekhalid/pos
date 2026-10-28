@@ -726,7 +726,7 @@ Testcontainers.
 | GitHub secrets | `RP_POSTGRES_PASSWORD`, `RP_JWT_SIGNING_KEY`, and the existing `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY` |
 | Pipeline | test (incl. Testcontainers) → copy to VM → write `.env` → `scripts/deploy-production.sh` (`dotnet restore` + EF migrations → build → blue-green standby → smoke tests → promote) |
 | Backups | nightly `pg_dump` of `restaurant` to `/root/backups/restaurant` (14 daily + 8 weekly kept), with optional copy off the VM; restore steps in `docs/DEPLOYMENT.md` |
-| Desktop app | `dotnet publish src/clients/Restaurant.Desktop -f net10.0-windows10.0.19041.0 -c Release`. It's unpackaged (`.exe` folder) at first; MSIX or an installer plus auto-update come in Phase 5 |
+| Desktop app | `dotnet publish src/clients/Restaurant.Desktop -f net10.0-windows10.0.19041.0 -c Release`. Packaged with Inno Setup by `installer/build-installer.ps1`; the app shows an update notice from `/api/desktop-release` |
 
 The desktop Release build calls `https://api.restaurant.dsnoopdoc.com`. Debug builds call
 `http://localhost:5080`, which can be overridden with `RESTAURANT_API_URL`. The web app calls `/api` on
@@ -827,9 +827,9 @@ Phase 4 notes:
 - [x] Sales, orders, products, payments, session and inventory reports (T14)
 - [x] Transaction-failure tests (T15), concurrency tests
 - [x] Security review: rate limits, lockout, headers, logging hygiene
-- [ ] Backups cron, restore drill, monitoring
-- [ ] `docs/PRINTING.md`, desktop installer (MSIX or Inno Setup) + update check
-- [ ] Production deploy, smoke test on a real counter PC and thermal printer
+- [x] Backups cron, restore drill, monitoring
+- [x] `docs/PRINTING.md`, desktop installer (Inno Setup) + update check
+- [ ] Production deploy, smoke test on a real counter PC and thermal printer (needs the VM, GitHub secrets and a counter PC)
 
 Phase 5 notes:
 - Reports live at `/api/reports/{sales,orders,products,payments,inventory}` with one filter (business-date
@@ -855,6 +855,21 @@ Phase 5 notes:
   keep their 10/min per IP), security headers and HSTS on the API, an 8 MB request cap, and the request
   log records paths only (the hub's token is in the query string). Lockout (5 tries, 5 min) and PIN
   lockout were already in place.
+- Backups: `scripts/backup-database.sh` dumps the database and the uploads nightly (14 daily, 8 weekly)
+  and before every deploy's migrations (5 kept), checks each dump with `pg_restore --list`, and can copy
+  off the VM (rsync or rclone). `restore-drill.sh` restores the newest backup into a throwaway container
+  every Sunday and checks it. `monitor.sh` checks health, backup age, failure markers and disk every
+  5 minutes and alerts a webhook after two failing runs. `install-ops.sh` installs all three (cron in
+  `/etc/cron.d/restaurant-ops`, settings in `/etc/restaurant/ops.env`) on every deploy. Tested against
+  the local database and a throwaway Linux container, not yet on the VM.
+- Desktop: `installer/build-installer.ps1` publishes the app self-contained and compiles
+  `installer/Restaurant.Desktop.iss` (needs Inno Setup 6). The app checks `GET /api/desktop-release` on
+  start and shows a notice (or a "no longer supported" banner below `MinimumVersion`); installers are
+  served from `/downloads/`. There is no silent auto-update.
+- The desktop app caches the default register's printers for 5 minutes (and forgets them when they are
+  saved on that PC).
+- Left for go-live: compile the installer, add the GitHub secrets and deploy, and run the go-live
+  checklist in `docs/PRINTING.md` on a real counter PC and thermal printer.
 
 ### Phase 6 — Optional, after release
 - [ ] Offline order capture on the desktop (local SQLite outbox, offline order-number range per register, conflict rules)

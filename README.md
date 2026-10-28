@@ -32,7 +32,13 @@ The two apps share one set of screens. The design, the decisions and the phase c
   sizes and add-ons, and stock is received, wasted, adjusted and counted against a ledger. Stock is
   deducted when an order goes to the kitchen and put back on a void. Deals cover combos, buy-X-get-Y,
   percent and amount off, happy hours and coupons. Customer profiles hold order history.
-- Reports and release come next (Phase 5). PLAN.md section 17 has the checklist.
+- **Phase 5 (reports and release):** built; go-live is left. Reports cover sales, orders, products and
+  deals, payments, stock and the day's closing report (80 mm print). Tests cover failures part-way through
+  an operation and simultaneous requests (107 tests). The API has rate limits and security headers. The VM
+  gets nightly backups, a weekly restore drill and monitoring ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+  The desktop app has an Inno Setup installer and an update notice. Still to do: compile the installer,
+  deploy to production, and test on a real counter PC and thermal printer (the go-live checklist in
+  [docs/PRINTING.md](docs/PRINTING.md)).
 
 ## Projects
 

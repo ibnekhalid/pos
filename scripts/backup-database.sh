@@ -173,7 +173,10 @@ fi
 if [ "$KIND" = "nightly" ]; then
   if [ -n "$BACKUP_RSYNC_TARGET" ]; then
     log "  rsync → ${BACKUP_RSYNC_TARGET}"
-    rsync -a --exclude '.tmp-*' --exclude '.lock' "${BACKUP_DIR}/daily" "${BACKUP_DIR}/weekly" "$BACKUP_RSYNC_TARGET"
+    # weekly/ appears only after the first weekly day; naming a missing folder would fail the whole copy.
+    SOURCES=("${BACKUP_DIR}/daily")
+    [ -d "${BACKUP_DIR}/weekly" ] && SOURCES+=("${BACKUP_DIR}/weekly")
+    rsync -a --exclude '.tmp-*' --exclude '.lock' "${SOURCES[@]}" "$BACKUP_RSYNC_TARGET"
   fi
   if [ -n "$BACKUP_RCLONE_REMOTE" ]; then
     log "  rclone → ${BACKUP_RCLONE_REMOTE}"
