@@ -40,3 +40,7 @@ public record UpdateStaffRequest(
 
 /// <param name="InviteCode">Shown once; the owner passes it to the staff member (no email/SMS provider yet).</param>
 public record StaffInviteDto(StaffMemberDto Member, string InviteCode, DateTimeOffset ExpiresAt);
+
+/// <summary>Makes a staff member an owner. With StepDown the caller then becomes a Manager (if they hold no other role).</summary>
+/// <param name="Password">The caller's own password: handing over a restaurant is confirmed like a sign-in.</param>
+public record TransferOwnershipRequest(string Password, bool StepDown);

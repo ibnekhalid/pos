@@ -271,6 +271,9 @@ public class SessionService(
             OpeningCash = Math.Round(openingCash, 2)
         };
         session.Registers.Add(registerSession);
+        // Added explicitly: its id is set client-side, so for a day that is already saved EF would otherwise
+        // take the new drawer for an existing row (an UPDATE) and its opening float would fail the FK.
+        db.RegisterSessions.Add(registerSession);
         db.CashMovements.Add(new CashMovement
         {
             TenantId = session.TenantId,

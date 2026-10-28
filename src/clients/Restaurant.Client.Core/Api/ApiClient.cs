@@ -32,6 +32,21 @@ public class ApiClient(HttpClient http, SessionStore session)
     public async Task PutAsync(string path, object? body, CancellationToken ct = default) => await SendAsync<JsonElement?>(HttpMethod.Put, path, body, ct);
     public async Task DeleteAsync(string path, CancellationToken ct = default) => await SendAsync<JsonElement?>(HttpMethod.Delete, path, null, ct);
 
+    /// <summary>A signed-in GET with extra headers (the counter PC's device token).</summary>
+    public async Task<T> GetAsync<T>(string path, IReadOnlyDictionary<string, string> headers, CancellationToken ct = default)
+    {
+        using var response = await SendAuthorizedAsync(() =>
+        {
+            var request = JsonRequest(HttpMethod.Get, path, null);
+            foreach (var (name, value) in headers)
+            {
+                request.Headers.Add(name, value);
+            }
+            return request;
+        }, ct);
+        return await ReadAsync<T>(response, ct);
+    }
+
     /// <summary>Calls that need no session (sign-in, sign-up, invites, PIN sign-in).</summary>
     public async Task<T> SendAnonymousAsync<T>(HttpMethod method, string path, object? body, IReadOnlyDictionary<string, string>? headers = null, CancellationToken ct = default)
     {

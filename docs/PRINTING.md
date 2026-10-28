@@ -48,11 +48,11 @@ paper and opens the cash drawer on cash payments.
 
 If no printer name is set, the desktop app falls back to the print dialog.
 
-**Which register's printers**: the app uses the printers of the branch's **default** register, whichever
-PC it runs on. With several counter PCs in one branch, give the printers the same Windows names on every
-PC (for example a shared network `Kitchen` printer, and a `Receipt` printer on each till). Per-PC printer
-settings are not built yet. A change takes effect at once on the PC where it was saved, and within
-5 minutes on the other counter PCs (or straight away after restarting the app).
+**Which register's printers**: each counter PC uses the printers and cash drawer of **its own register**.
+Set it in **Settings → Counter devices → Till**. Its cash payments, refunds and paid-outs then go to that
+register's drawer, so open that register on the business-day screen first. A PC with no till set uses the
+branch's **default** register, as does the web app. A change takes effect at once on the PC where it was
+saved, and within 5 minutes on the other counter PCs (or straight away after restarting the app).
 
 **Network printers** (port 9100): add them in Windows as a "Standard TCP/IP port" printer with the
 Generic / Text Only driver, then use that name. Give the printer a fixed IP address (a DHCP reservation on
@@ -69,8 +69,15 @@ receipt. Most drawers use pin 2; a drawer wired for pin 5 won't open (that isn't
 **Paper cut**: after each receipt or ticket, the app feeds the paper and does a partial cut. Printers
 without a cutter ignore it; tear off by hand.
 
-**Limits**: text mode prints Latin characters. Urdu item names come out as "?" on thermal printers. Give
-items an English name and add the Urdu name separately, or use the PDF or browser print for Urdu receipts.
+**Urdu and other non-Latin text**: the printer's own font only has Latin characters, so the app draws
+any line that has anything else (an Urdu item name, modifier or restaurant name, an accented customer
+name) as a picture and sends it in raster mode (`GS v 0`), as wide as the paper (576 dots on 80 mm, 384
+on 58 mm). Windows joins the letters and lays the line out right to left; a line that starts in Urdu is
+right-aligned, while an item line keeps its quantity on the left and its amount on the right. The font is
+Segoe UI, which every Windows 10/11 PC has. Only those lines are pictures, so an all-English receipt
+prints as fast as before. The printer has to support `GS v 0` raster images, which ESC/POS printers do
+(Epson TM, Xprinter, Bixolon and most generic models); one that doesn't prints symbols or nothing in
+place of the Urdu line. Use the PDF or browser print there.
 
 ### Troubleshooting
 
@@ -80,6 +87,7 @@ items an English name and add the Urdu name separately, or use the PDF or browse
 | Nothing prints, no error | The job is stuck in the Windows queue (printer → *See what's printing*): the printer is offline, out of paper, or on a changed IP. Clear the queue and power-cycle the printer |
 | Blank paper comes out | The thermal paper roll is in the wrong way round: the printing side faces the print head |
 | Odd characters or a wall of symbols | The printer is in a non-ESC/POS mode or uses the wrong driver. Use the vendor's ESC/POS driver or Generic / Text Only |
+| Urdu lines are cut off on one side or come out as symbols | The receipt paper width (Settings → Branding → Printing) doesn't match the printer, or the printer has no raster image support |
 | Drawer doesn't open | The cable is in the DK port, *Cash drawer* is ticked on the default register, and the order was paid in cash. Some drawers need pin 5 |
 | The first print after a while is slow | The printer was asleep (USB power saving); see step 2 of the counter PC set-up |
 | Kitchen tickets print at the counter | *Kitchen printer* is empty or has the same name as the receipt printer |

@@ -64,4 +64,5 @@ public record OrderSummaryDto(Guid Id, string OrderNumber, OrderType Type, Order
 /// <param name="RegisterId">Null = the branch's default register.</param>
 public record TakePaymentRequest(Guid ClientRequestId, Guid PaymentMethodId, decimal Amount, decimal? Tendered, string? Reference, Guid? RegisterId = null);
 
-public record RefundRequest(Guid ClientRequestId, decimal Amount, string Reason, Approval? Approval = null);
+/// <param name="RegisterId">The drawer the money leaves (this counter PC's register); null = the branch's default.</param>
+public record RefundRequest(Guid ClientRequestId, decimal Amount, string Reason, Approval? Approval = null, Guid? RegisterId = null);

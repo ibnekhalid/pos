@@ -78,3 +78,7 @@ public record InventoryReportDto(
 
 /// <summary>Who can be picked in the cashier filter.</summary>
 public record ReportStaffDto(Guid UserId, string Name);
+
+/// <summary>The caller's own figures for the open business day: orders they placed and payments they took.</summary>
+public record MyShiftDto(DateOnly BusinessDate, int Orders, decimal NetSales, decimal TotalBilled, decimal Collected, decimal Refunded,
+    IReadOnlyList<PaymentMethodTotalDto> ByMethod);

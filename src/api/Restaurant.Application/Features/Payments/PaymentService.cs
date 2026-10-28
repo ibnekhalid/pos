@@ -150,8 +150,8 @@ public class PaymentService(
 
         var approver = await approvals.RequireAsync(Permissions.Payments.Refund, request.Approval, payment.BranchId, ct);
         var order = await orders.LoadOrderAsync(payment.OrderId, ct);
-        // The money leaves today's drawer, whichever day the sale was.
-        var registerSession = await sessions.OpenRegisterSessionAsync(payment.BranchId, null, ct);
+        // The money leaves today's drawer (the one at this counter), whichever day the sale was.
+        var registerSession = await sessions.OpenRegisterSessionAsync(payment.BranchId, request.RegisterId, ct);
 
         var refund = new Refund
         {

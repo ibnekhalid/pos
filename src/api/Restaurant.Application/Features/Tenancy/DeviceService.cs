@@ -52,6 +52,44 @@ public class DeviceService(IApplicationDbContext db, ITenantContext tenant, Tena
         return new RegisterDeviceResult(ToDto(device), rawToken);
     }
 
+    /// <summary>Renames a counter PC or changes which register (till) it is.</summary>
+    public async Task<DeviceDto> UpdateAsync(Guid deviceId, UpdateDeviceRequest request, CancellationToken cancellationToken = default)
+    {
+        tenant.RequireTenantId();
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 100)
+        {
+            throw new ValidationAppException(nameof(request.Name), "Give the device a name (up to 100 characters).");
+        }
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && d.RevokedAt == null, cancellationToken)
+            ?? throw new NotFoundException("Device");
+        tenant.EnsureBranch(device.BranchId);
+        if (request.RegisterId is { } registerId
+            && !await db.Registers.AnyAsync(r => r.Id == registerId && r.BranchId == device.BranchId, cancellationToken))
+        {
+            throw new NotFoundException("Register");
+        }
+
+        var before = ToDto(device);
+        device.Name = request.Name.Trim();
+        device.RegisterId = request.RegisterId;
+        audit.Record(AuditActions.DeviceUpdated, nameof(RegisteredDevice), device.Id, before, ToDto(device), branchId: device.BranchId);
+        await db.SaveChangesAsync(cancellationToken);
+        return ToDto(device);
+    }
+
+    /// <summary>
+    /// The PC making the request, from its device token (any signed-in staff member of the same restaurant):
+    /// the desktop app reads its register from here. Null when the token is unknown, revoked or another tenant's.
+    /// </summary>
+    public async Task<DeviceDto?> CurrentAsync(string? deviceToken, CancellationToken cancellationToken = default)
+    {
+        tenant.RequireTenantId();
+        if (string.IsNullOrWhiteSpace(deviceToken)) return null;
+        var hash = Secrets.Hash(deviceToken);
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.TokenHash == hash && d.RevokedAt == null, cancellationToken);
+        return device is null ? null : ToDto(device);
+    }
+
     public async Task RevokeAsync(Guid deviceId, CancellationToken cancellationToken = default)
     {
         tenant.RequireTenantId();

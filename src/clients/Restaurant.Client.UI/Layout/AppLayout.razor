@@ -9,6 +9,7 @@
 @inject IPlatformInfo Platform
 @inject IWindowService Window
 @inject DeviceRegistration Device
+@inject StockAlerts Alerts
 
 @* Signed-in shell: navigation (only what the user may use), branch switcher, user menu, and on the
    desktop app the idle auto-lock. Themed by the restaurant's branding. *@
@@ -32,6 +33,10 @@
                     @if (!section.Built)
                     {
                         <span class="rp-soon">@L["nav.soon"]</span>
+                    }
+                    else if (section.Slug == "inventory" && Alerts.Items.Count > 0)
+                    {
+                        <span class="rp-nav-count" title="@L["inventory.lowAlert"]">@Alerts.Items.Count</span>
                     }
                 </NavLink>
             }
@@ -130,9 +135,12 @@
         Brand.Changed += Refresh;
         L.Changed += Refresh;
         Device.Changed += Refresh;
+        Alerts.Changed += Refresh;
+        Nav.LocationChanged += OnLocationChanged;
 
         if (!EnsureSignedIn()) return;
         await LoadUserAsync();
+        _ = Alerts.RefreshAsync();
 
         // Desktop counters lock themselves after the configured idle time.
         if (Device.Supported)
@@ -188,8 +196,11 @@
     {
         if (!EnsureSignedIn()) return;
         if (User.Me is null && !Session.IsLocked) await LoadUserAsync();
+        _ = Alerts.RefreshAsync(); // a branch switch reads the new branch's list
         StateHasChanged();
     });
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => _ = Alerts.RefreshAsync();
 
     private void Touch() => _lastActivity = DateTime.UtcNow;
 
@@ -241,5 +252,7 @@
         Brand.Changed -= Refresh;
         L.Changed -= Refresh;
         Device.Changed -= Refresh;
+        Alerts.Changed -= Refresh;
+        Nav.LocationChanged -= OnLocationChanged;
     }
 }

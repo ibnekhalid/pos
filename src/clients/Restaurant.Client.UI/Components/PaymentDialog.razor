@@ -136,7 +136,8 @@
         if (Order is null || _methodId is null) return;
         var amount = Format.ParseNumber(_amount) ?? 0;
         var tendered = Selected?.IsCash == true ? Format.ParseNumber(_tendered) ?? amount : (decimal?)null;
-        var request = new TakePaymentRequest(_requestId, _methodId.Value, amount, tendered, string.IsNullOrWhiteSpace(_reference) ? null : _reference.Trim());
+        var request = new TakePaymentRequest(_requestId, _methodId.Value, amount, tendered, string.IsNullOrWhiteSpace(_reference) ? null : _reference.Trim(),
+            await Printer.CounterRegisterIdAsync());
 
         OrderDto? updated = null;
         if (await RunAsync(async () => updated = await Api.TakePaymentAsync(Order.Id, request)))

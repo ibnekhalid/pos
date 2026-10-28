@@ -99,6 +99,17 @@ public class StockService(IApplicationDbContext db, ITenantContext tenant, Appro
         }).ToList();
     }
 
+    /// <summary>
+    /// What needs ordering at the selected branch (home screen and navigation alert). Items without a reorder
+    /// level only show once they go negative, so an untracked item never nags.
+    /// </summary>
+    public async Task<IReadOnlyList<LowStockDto>> LowStockAsync(CancellationToken ct) =>
+        (await LevelsAsync(ct))
+            .Where(l => l.OnHand < 0 || (l.ReorderLevel > 0 && l.OnHand <= l.ReorderLevel))
+            .OrderByDescending(l => l.ReorderLevel == 0 ? decimal.MaxValue : (l.ReorderLevel - l.OnHand) / l.ReorderLevel)
+            .Select(l => new LowStockDto(l.ItemId, l.Name, l.BaseUnit, l.Category, l.OnHand, l.ReorderLevel, l.ReorderLevel - l.OnHand))
+            .ToList();
+
     public async Task<IReadOnlyList<StockMovementDto>> MovementsAsync(Guid? itemId, int take, CancellationToken ct)
     {
         var branchId = tenant.RequireBranchId();

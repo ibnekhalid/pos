@@ -162,4 +162,25 @@ public class InventoryTests(ApiFactory factory) : IClassFixture<ApiFactory>
         (await owner.RawPostAsync("/api/inventory/adjustments", new StockAdjustmentRequest(Guid.NewGuid(), s.Chicken, StockMovementType.Wastage, 1, "ml", "Spilt")))
             .ShouldBe(HttpStatusCode.BadRequest); // chicken is weighed, not measured in ml
     }
+
+    [Fact]
+    public async Task Low_stock_lists_items_at_their_reorder_level_or_below_zero()
+    {
+        var pos = await factory.SetUpRestaurantAsync();
+        var owner = pos.Owner;
+        var oil = await owner.PostAsync<InventoryItemDto>("/api/inventory/items", new SaveInventoryItemRequest("Oil", null, "ml", null, 2000, true, []));
+        var salt = await owner.PostAsync<InventoryItemDto>("/api/inventory/items", new SaveInventoryItemRequest("Salt", null, "g", null, 0, true, []));
+        var rice = await owner.PostAsync<InventoryItemDto>("/api/inventory/items", new SaveInventoryItemRequest("Rice", null, "g", null, 1000, true, []));
+        await owner.PostAsync<StockReceiptDto>("/api/inventory/receipts", new CreateStockReceiptRequest(Guid.NewGuid(), null, null, null,
+            [new(oil.Id, 1500, "ml", 1), new(rice.Id, 5, "kg", 200)]));
+        await owner.PostAsync<StockMovementDto>("/api/inventory/adjustments", new StockAdjustmentRequest(Guid.NewGuid(), salt.Id, StockMovementType.Adjustment, -50, "g", "Spilt"));
+
+        var low = await owner.GetAsync<List<LowStockDto>>("/api/inventory/low-stock");
+        low.Select(l => l.Name).Should().BeEquivalentTo(["Oil", "Salt"]); // rice is above its level; salt has none but is negative
+        low.Single(l => l.Name == "Oil").Shortfall.Should().Be(500);
+
+        var (waiter, _, _) = await factory.AddStaffAsync(owner, ["Waiter"]);
+        waiter.UseBranch(owner.BranchId);
+        (await waiter.RawGetAsync("/api/inventory/low-stock")).ShouldBe(System.Net.HttpStatusCode.Forbidden);
+    }
 }

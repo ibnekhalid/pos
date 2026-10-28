@@ -66,6 +66,15 @@ public class TenantController(TenancyService tenancy, DeviceService devices, ITe
     [RequirePermission(Permissions.Tenant.ManageSettings)]
     public Task<RegisterDeviceResult> RegisterDevice(RegisterDeviceRequest request, CancellationToken ct) => devices.RegisterAsync(request, ct);
 
+    [HttpPut("devices/{deviceId:guid}")]
+    [RequirePermission(Permissions.Tenant.ManageSettings)]
+    public Task<DeviceDto> UpdateDevice(Guid deviceId, UpdateDeviceRequest request, CancellationToken ct) => devices.UpdateAsync(deviceId, request, ct);
+
+    /// <summary>This counter PC (X-Device-Token), or 204 when the request doesn't come from a registered PC.</summary>
+    [HttpGet("devices/current")]
+    public async Task<ActionResult<DeviceDto>> CurrentDevice([FromHeader(Name = "X-Device-Token")] string? deviceToken, CancellationToken ct) =>
+        await devices.CurrentAsync(deviceToken, ct) is { } device ? device : NoContent();
+
     [HttpDelete("devices/{deviceId:guid}")]
     [RequirePermission(Permissions.Tenant.ManageSettings)]
     public async Task<IActionResult> RevokeDevice(Guid deviceId, CancellationToken ct)

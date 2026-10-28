@@ -174,4 +174,27 @@ public class ReportTests(ApiFactory factory) : IClassFixture<ApiFactory>
         (await other.Owner.RawGetAsync($"/api/reports/sales?sessionId={session.Id}&from=2000-01-01&to=2000-01-01")).ShouldBe(HttpStatusCode.NotFound);
         (await other.Owner.GetAsync<SalesReportDto>("/api/reports/sales" + Range(session, "&allBranches=true"))).Figures.OrderCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task A_cashier_sees_only_their_own_shift_totals()
+    {
+        var pos = await factory.SetUpRestaurantAsync();
+        var (cashier, _, _) = await factory.AddStaffAsync(pos.Owner, ["Cashier"]);
+        cashier.UseBranch(pos.Owner.BranchId);
+
+        var mine = await cashier.PostAsync<OrderDto>("/api/orders", pos.StandardOrder());
+        await cashier.PayCashAsync(mine.Id, 1856, 2000, pos);
+        var theirs = await pos.Owner.PostAsync<OrderDto>("/api/orders", pos.StandardOrder());
+        await pos.Owner.PostAsync<OrderDto>($"/api/orders/{theirs.Id}/payments", new TakePaymentRequest(Guid.NewGuid(), pos.CardMethod, 1856, null, null));
+
+        var shift = await cashier.GetAsync<MyShiftDto>("/api/reports/my-shift");
+        shift.Orders.Should().Be(1);
+        shift.TotalBilled.Should().Be(1856);
+        shift.Collected.Should().Be(1856);
+        shift.ByMethod.Should().ContainSingle().Which.IsCash.Should().BeTrue();
+        (await pos.Owner.GetAsync<MyShiftDto>("/api/reports/my-shift")).ByMethod.Should().ContainSingle().Which.IsCash.Should().BeFalse();
+
+        // Cashiers still can't open the reports themselves.
+        (await cashier.RawGetAsync($"/api/reports/payments?from={shift.BusinessDate:yyyy-MM-dd}&to={shift.BusinessDate:yyyy-MM-dd}")).ShouldBe(HttpStatusCode.Forbidden);
+    }
 }

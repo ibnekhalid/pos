@@ -1,5 +1,6 @@
 @page "/app/sessions"
 @inherits PageBase
+@inject PrintService Printer
 @using Restaurant.Contracts.Sessions
 
 <PageTitle>@T("nav.sessions")</PageTitle>
@@ -61,6 +62,31 @@ else
                 </div>
             }
         </section>
+
+        @if (_shift is { } shift)
+        {
+            <section class="rp-panel">
+                <h2>@T("day.myShift")</h2>
+                <div class="rp-stats">
+                    <div class="rp-stat"><span>@T("day.orders")</span><strong>@shift.Orders</strong></div>
+                    <div class="rp-stat"><span>@T("day.billed")</span><strong>@Money(shift.TotalBilled)</strong></div>
+                    <div class="rp-stat"><span>@T("day.collected")</span><strong>@Money(shift.Collected)</strong></div>
+                    @if (shift.Refunded != 0) { <div class="rp-stat"><span>@T("receipt.refunded")</span><strong>@Money(shift.Refunded)</strong></div> }
+                </div>
+                @if (shift.ByMethod.Count > 0)
+                {
+                    <table class="rp-table">
+                        <tbody>
+                            @foreach (var m in shift.ByMethod)
+                            {
+                                <tr><td>@m.Method <span class="rp-hint">× @m.Count</span></td><td class="rp-right">@Money(m.Collected)</td><td class="rp-right rp-hint">@(m.Refunded == 0 ? "" : "−" + Money(m.Refunded))</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                <p class="rp-hint">@T("day.myShiftHint")</p>
+            </section>
+        }
 
         @if (_movements.Count > 0)
         {
@@ -149,6 +175,7 @@ else
     private CashMovementType _cashType = CashMovementType.PaidOut;
     private Guid _cashRequestId = Guid.NewGuid();
     private SessionHistoryItemDto? _reopening;
+    private Restaurant.Contracts.Reports.MyShiftDto? _shift;
 
     protected override async Task LoadAsync()
     {
@@ -157,6 +184,7 @@ else
             ? (await Api.GetCashMovementsAsync(_session.Id)).Where(m => m.Type is CashMovementType.PaidOut or CashMovementType.CashIn or CashMovementType.CashRefund).ToList()
             : [];
         _history = User.CanAny(Permissions.Reports.Sales, Permissions.Sessions.Close) ? await Api.GetSessionHistoryAsync() : [];
+        _shift = _session is not null && User.CanAny(Permissions.Orders.Create, Permissions.Payments.Take) ? await Api.GetMyShiftAsync() : null;
         if (User.CurrentBranch is { } branch) _registers = await Api.GetRegistersAsync(branch.Id);
     }
 
@@ -191,7 +219,7 @@ else
     {
         var ok = await RunAsync(async () =>
         {
-            await Api.RecordCashAsync(new RecordCashMovementRequest(_cashRequestId, null, _cashType, Format.ParseNumber(_cashAmount) ?? 0, _reason ?? ""));
+            await Api.RecordCashAsync(new RecordCashMovementRequest(_cashRequestId, await Printer.CounterRegisterIdAsync(), _cashType, Format.ParseNumber(_cashAmount) ?? 0, _reason ?? ""));
             await LoadAsync();
         }, T("common.saved"));
         if (ok) _cashOpen = false;

@@ -496,8 +496,9 @@ It then renders the document in one of three ways:
 - **58 mm:** the same document with a narrower column layout. The ESC/POS renderer wraps at 32 characters
   instead of 48.
 - **Urdu text on thermal printers:** most cheap ESC/POS printers have no Urdu font. For Urdu item names
-  the desktop app renders that line to a bitmap (raster mode). This is an optional setting, because
-  bitmaps print more slowly.
+  the desktop app renders that line to a bitmap (raster mode, GS v 0) with Windows GDI, which joins the
+  letters and lays them out right to left. Only lines with non-ASCII text become bitmaps; the rest stay
+  text, so receipts stay fast.
 
 **Desktop printing** (`IReceiptPrinter`, Windows implementation):
 - `WindowsRawPrinter` opens the printer named in the register settings through winspool
@@ -796,7 +797,7 @@ Notes and deviations:
 - The cash/card tax split follows the first payment's method (an order is priced as cash until then).
 - Service charge is calculated on the pre-tax amount and is not itself taxed.
 - Customers are a name and phone on the order (profiles were added in Phase 4).
-- Thermal printing is text-mode ESC/POS: Urdu names print as "?" (bitmap Urdu printing is still to do). PDFs and browser printing show Urdu.
+- Thermal printing was text-mode ESC/POS at first (Urdu printed as "?"); Urdu lines are printed as bitmaps since the deferred-items batch after Phase 5.
 
 ### Phase 4 — Inventory and deals
 - [x] Units and conversions, inventory items, recipes (item, variant, modifier)
@@ -866,10 +867,30 @@ Phase 5 notes:
   `installer/Restaurant.Desktop.iss` (needs Inno Setup 6). The app checks `GET /api/desktop-release` on
   start and shows a notice (or a "no longer supported" banner below `MinimumVersion`); installers are
   served from `/downloads/`. There is no silent auto-update.
-- The desktop app caches the default register's printers for 5 minutes (and forgets them when they are
-  saved on that PC).
+- The desktop app caches its register's printers for 5 minutes (and forgets them when they are saved on
+  that PC).
 - Left for go-live: compile the installer, add the GitHub secrets and deploy, and run the go-live
   checklist in `docs/PRINTING.md` on a real counter PC and thermal printer.
+
+### Deferred items, batch 1 (after Phase 5)
+- [x] Ownership transfer: an owner makes an active staff member an owner (all branches), confirmed with
+  their own password, and can step down to Manager in the same transaction. Audited as
+  `ownership.transferred`.
+- [x] Cashiers' own shift totals: `GET /api/reports/my-shift` (orders.create or payments.take) and a
+  "My shift today" panel on the business-day screen. It shows only the caller's own orders and payments
+  in the open day, so it needs no report permission.
+- [x] Per-PC tills: each counter device can be set to a register in Settings → Counter devices. The
+  desktop app reads it with its device token (`GET /api/devices/current`) and uses that register's
+  printers and cash drawer, and sends its payments, refunds and cash movements to that drawer. With no
+  register set it uses the branch's default, as before.
+- [x] Low-stock alerts: `GET /api/inventory/low-stock` (items at or below a reorder level that is set, or
+  below zero), a count on the Inventory menu item and a list on the home screen. They refresh on
+  navigation and when orders change, at most once a minute.
+- [x] Urdu on thermal printers (raster lines, see section 10). It hasn't been tried on a real printer yet.
+- Found and fixed on the way: opening a second register in a business day that had already started
+  always failed with a 500, because the new drawer was saved as an UPDATE.
+- Still deferred: purchase orders and suppliers as records, stock transfers between branches, table
+  reservations and cleaning states.
 
 ### Phase 6 — Optional, after release
 - [ ] Offline order capture on the desktop (local SQLite outbox, offline order-number range per register, conflict rules)

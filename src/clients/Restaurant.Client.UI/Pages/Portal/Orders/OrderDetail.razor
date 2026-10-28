@@ -223,7 +223,7 @@ else
                     string.IsNullOrWhiteSpace(_percent) && string.IsNullOrWhiteSpace(_amount) ? null
                         : new ManualDiscountRequest(Format.ParseNumber(_percent), string.IsNullOrWhiteSpace(_percent) ? Format.ParseNumber(_amount) : null, _reason ?? ""),
                     _approval)),
-                "refund" => await Api.RefundAsync(_payment!.Id, new RefundRequest(Guid.NewGuid(), Format.ParseNumber(_amount) ?? 0, _reason ?? "", _approval)),
+                "refund" => await Api.RefundAsync(_payment!.Id, new RefundRequest(Guid.NewGuid(), Format.ParseNumber(_amount) ?? 0, _reason ?? "", _approval, await Printer.CounterRegisterIdAsync())),
                 "void" => await Api.VoidOrderAsync(OrderId, new ReasonRequest(_reason, _approval)),
                 "cancel" => await Api.CancelOrderAsync(OrderId, new ReasonRequest(_reason)),
                 "voidLine" => await Api.VoidLineAsync(OrderId, _line!.Id, new ReasonRequest(_reason, _approval)),

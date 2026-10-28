@@ -437,3 +437,5 @@ textarea.rp-input { resize: vertical; }
     .rp-bar { background: #eee; }
     .rp-bar span { background: #555; }
 }
+.rp-nav-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--rp-warning); color: #fff; font-size: .72rem; font-weight: 700; text-align: center; }
+.rp-alert-panel { border-color: color-mix(in srgb, var(--rp-warning) 40%, var(--rp-border)); }

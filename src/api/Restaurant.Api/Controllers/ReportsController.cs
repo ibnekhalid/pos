@@ -37,6 +37,11 @@ public class ReportsController(ReportService reports) : ControllerBase
     [RequirePermission(Permissions.Reports.Inventory)]
     public Task<InventoryReportDto> Inventory([FromQuery] ReportFilter filter, CancellationToken ct) => reports.InventoryAsync(filter, ct);
 
+    /// <summary>The caller's own orders and payments in the open day (cashiers' shift totals); 204 when no day is open.</summary>
+    [HttpGet("my-shift")]
+    [RequirePermission(Permissions.Orders.Create, Permissions.Payments.Take)]
+    public async Task<ActionResult<MyShiftDto>> MyShift(CancellationToken ct) => await reports.MyShiftAsync(ct) is { } shift ? shift : NoContent();
+
     [HttpGet("staff")]
     [RequirePermission(Permissions.Reports.Sales, Permissions.Reports.Financial)]
     public Task<IReadOnlyList<ReportStaffDto>> Staff(CancellationToken ct) => reports.StaffAsync(ct);

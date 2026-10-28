@@ -17,6 +17,7 @@ public static class UiServiceCollectionExtensions
         // The desktop app registers its own printer (ESC/POS) before calling this.
         services.TryAddScoped<IReceiptPrinter>(sp => sp.GetRequiredService<HtmlReceiptPrinter>());
         services.AddScoped<PrintService>();
+        services.AddScoped<StockAlerts>();
         return services;
     }
 }

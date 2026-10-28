@@ -122,6 +122,11 @@ public class RestaurantApi(ApiClient api, SessionStore session)
     public Task<IReadOnlyList<DeviceDto>> GetDevicesAsync() => api.GetAsync<IReadOnlyList<DeviceDto>>("api/devices");
     public Task<RegisterDeviceResult> RegisterDeviceAsync(RegisterDeviceRequest request) => api.PostAsync<RegisterDeviceResult>("api/devices", request);
     public Task RevokeDeviceAsync(Guid id) => api.DeleteAsync($"api/devices/{id}");
+    public Task<DeviceDto> UpdateDeviceAsync(Guid id, UpdateDeviceRequest request) => api.PutAsync<DeviceDto>($"api/devices/{id}", request);
+
+    /// <summary>This counter PC as the server knows it (its register), or null if it isn't registered there.</summary>
+    public Task<DeviceDto?> GetCurrentDeviceAsync(string deviceToken) =>
+        api.GetAsync<DeviceDto?>("api/devices/current", new Dictionary<string, string> { [DeviceTokenHeader] = deviceToken });
 
     // ------------------------------------------------------------ taxes, payment methods
 
@@ -140,6 +145,7 @@ public class RestaurantApi(ApiClient api, SessionStore session)
     public Task<StaffInviteDto> CreateStaffAsync(CreateStaffRequest request) => api.PostAsync<StaffInviteDto>("api/staff", request);
     public Task<StaffMemberDto> UpdateStaffAsync(Guid id, UpdateStaffRequest request) => api.PutAsync<StaffMemberDto>($"api/staff/{id}", request);
     public Task<StaffInviteDto> ReissueInviteAsync(Guid id) => api.PostAsync<StaffInviteDto>($"api/staff/{id}/invite", new { });
+    public Task<StaffMemberDto> TransferOwnershipAsync(Guid id, TransferOwnershipRequest request) => api.PostAsync<StaffMemberDto>($"api/staff/{id}/transfer-ownership", request);
 
     public Task<IReadOnlyList<PermissionDto>> GetPermissionsAsync() => api.GetAsync<IReadOnlyList<PermissionDto>>("api/permissions");
     public Task<IReadOnlyList<RoleDto>> GetRolesAsync() => api.GetAsync<IReadOnlyList<RoleDto>>("api/roles");
@@ -205,6 +211,8 @@ public class RestaurantApi(ApiClient api, SessionStore session)
     public Task<ProductsReportDto> GetProductsReportAsync(ReportFilter filter) => api.GetAsync<ProductsReportDto>("api/reports/products" + Query(filter));
     public Task<PaymentsReportDto> GetPaymentsReportAsync(ReportFilter filter) => api.GetAsync<PaymentsReportDto>("api/reports/payments" + Query(filter));
     public Task<InventoryReportDto> GetInventoryReportAsync(ReportFilter filter) => api.GetAsync<InventoryReportDto>("api/reports/inventory" + Query(filter));
+    public Task<IReadOnlyList<LowStockDto>> GetLowStockAsync() => api.GetAsync<IReadOnlyList<LowStockDto>>("api/inventory/low-stock");
+    public Task<MyShiftDto?> GetMyShiftAsync() => api.GetAsync<MyShiftDto?>("api/reports/my-shift");
     public Task<IReadOnlyList<ReportStaffDto>> GetReportStaffAsync() => api.GetAsync<IReadOnlyList<ReportStaffDto>>("api/reports/staff");
 
     private static string Query(ReportFilter f)

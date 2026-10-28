@@ -9,7 +9,8 @@ namespace Restaurant.Desktop.Platform;
 /// <summary>
 /// Receipts on the counter PC: raw ESC/POS straight to the register's Windows printer (fast, silent, cuts
 /// the paper and kicks the cash drawer). With no printer set on the register it falls back to the print
-/// dialog. Any thermal printer with a Windows driver works, including "Generic / Text Only".
+/// dialog. Any thermal printer with a Windows driver works, including "Generic / Text Only". Urdu lines
+/// print as raster images (<see cref="GdiTextRasterizer"/>).
 /// </summary>
 public class DesktopReceiptPrinter(HtmlReceiptPrinter dialog) : IReceiptPrinter
 {
@@ -23,8 +24,12 @@ public class DesktopReceiptPrinter(HtmlReceiptPrinter dialog) : IReceiptPrinter
             return;
         }
 
-        var bytes = EscPos.Render(request.Document, request.OpenCashDrawer);
-        await Task.Run(() => WindowsRawPrinter.Send(request.PrinterName, $"Restaurant POS {request.Document.OrderNumber}", bytes), cancellationToken);
+        // Off the UI thread: Urdu lines are drawn as raster images first.
+        await Task.Run(() =>
+        {
+            var bytes = EscPos.Render(request.Document, request.OpenCashDrawer, GdiTextRasterizer.Instance);
+            WindowsRawPrinter.Send(request.PrinterName, $"Restaurant POS {request.Document.OrderNumber}", bytes);
+        }, cancellationToken);
     }
 }
 

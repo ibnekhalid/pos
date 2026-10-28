@@ -65,6 +65,9 @@ public record DeviceDto(Guid Id, Guid BranchId, Guid? RegisterId, string Name, D
 
 public record RegisterDeviceRequest(Guid BranchId, Guid? RegisterId, string Name);
 
+/// <param name="RegisterId">The till this PC is: its printers, cash drawer and payments. Null = the branch's default register.</param>
+public record UpdateDeviceRequest(string Name, Guid? RegisterId);
+
 /// <param name="DeviceToken">Shown once. The desktop app keeps it in secure storage for PIN sign-in.</param>
 public record RegisterDeviceResult(DeviceDto Device, string DeviceToken);
 

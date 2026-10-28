@@ -95,3 +95,7 @@ public record RecipeLineDto(Guid InventoryItemId, decimal Quantity, string Unit)
 
 /// <summary>What one menu item (all sizes), one size, or one add-on option uses from stock.</summary>
 public record RecipeDto(Guid? MenuItemId, Guid? VariantId, Guid? ModifierOptionId, IReadOnlyList<RecipeLineDto> Lines);
+
+/// <summary>A stock item that needs ordering: at or below its reorder level (one is set), or below zero.</summary>
+/// <param name="Shortfall">Reorder level − on hand, in the base unit.</param>
+public record LowStockDto(Guid ItemId, string Name, string BaseUnit, string? Category, decimal OnHand, decimal ReorderLevel, decimal Shortfall);

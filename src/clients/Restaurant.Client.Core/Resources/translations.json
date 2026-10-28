@@ -144,7 +144,11 @@
       "setupStaff": "Invite your staff",
       "setupDevice": "Register the counter computer for PIN sign-in",
       "sectionsTitle": "Your workspace",
-      "phase": "Phase {phase}"
+      "phase": "Phase {phase}",
+      "lowStockTitle": "Low stock ({n})",
+      "openInventory": "Open inventory",
+      "short": "Short",
+      "lowStockMore": "and {n} more on the inventory screen."
     },
     "planned": {
       "title": "Coming soon",
@@ -340,7 +344,9 @@
       "revoke": "Revoke",
       "revokeTitle": "Revoke this computer?",
       "revokeText": "PIN sign-in on {name} stops immediately and its PIN sessions end.",
-      "revokedDone": "Computer revoked."
+      "revokedDone": "Computer revoked.",
+      "till": "Till (register)",
+      "defaultRegister": "Branch default"
     },
     "audit": {
       "title": "Activity log",
@@ -538,7 +544,8 @@
       "inventory_recipe_saved": "Recipe saved",
       "deal_saved": "Deal saved",
       "customer_saved": "Customer saved",
-      "customer_anonymized": "Customer data removed"
+      "customer_anonymized": "Customer data removed",
+      "ownership_transferred": "Ownership handed over"
     },
     "approval": {
       "needed": "A manager's approval is needed",
@@ -748,7 +755,9 @@
       "paymentMethod": "Payment method",
       "collected": "Collected",
       "formulaHint": "Gross sales are item prices before discounts. Net sales = gross − discounts. Billed = net + service charge + tax ± rounding. These are sales, not profit.",
-      "cashByRegister": "Cash by register"
+      "cashByRegister": "Cash by register",
+      "myShift": "My shift today",
+      "myShiftHint": "Orders you placed and payments you took in this business day."
     },
     "menu": {
       "subtitle": "Availability shown for {branch}.",
@@ -967,7 +976,8 @@
       "allSizes": "All sizes",
       "allSizesHint": "Used for every size that has no recipe of its own.",
       "sizeHint": "This size's own recipe replaces the all-sizes one.",
-      "addIngredient": "Add ingredient"
+      "addIngredient": "Add ingredient",
+      "lowAlert": "Items at or below their reorder level"
     },
     "movementType": {
       "Opening": "Opening",
@@ -1076,6 +1086,16 @@
       "required": "This version of Restaurant POS is no longer supported. Please install version {version}.",
       "download": "Download",
       "later": "Later"
+    },
+    "ownership": {
+      "title": "Make owner",
+      "button": "Make owner",
+      "text": "Give {name} full access to the restaurant, including staff, settings and every report. Use this to hand the restaurant over.",
+      "confirm": "{name} will become an owner with access to every branch.",
+      "stepDown": "I'm stepping down",
+      "stepDownHint": "You stop being an owner and keep working as a Manager.",
+      "password": "Your password",
+      "done": "{name} is now an owner."
     }
   },
   "ur": {
@@ -1223,7 +1243,11 @@
       "setupStaff": "اپنے عملے کو مدعو کریں",
       "setupDevice": "PIN سائن ان کے لیے کاؤنٹر کمپیوٹر رجسٹر کریں",
       "sectionsTitle": "آپ کا کام",
-      "phase": "مرحلہ {phase}"
+      "phase": "مرحلہ {phase}",
+      "lowStockTitle": "کم اسٹاک ({n})",
+      "openInventory": "اسٹاک کھولیں",
+      "short": "کمی",
+      "lowStockMore": "اور {n} مزید اسٹاک اسکرین پر۔"
     },
     "planned": {
       "title": "جلد آ رہا ہے",
@@ -1419,7 +1443,9 @@
       "revoke": "منسوخ کریں",
       "revokeTitle": "یہ کمپیوٹر منسوخ کریں؟",
       "revokeText": "{name} پر PIN سائن ان فوراً بند ہو جائے گا اور اس کے سیشن ختم ہو جائیں گے۔",
-      "revokedDone": "کمپیوٹر منسوخ ہو گیا۔"
+      "revokedDone": "کمپیوٹر منسوخ ہو گیا۔",
+      "till": "کاؤنٹر (رجسٹر)",
+      "defaultRegister": "برانچ کا ڈیفالٹ"
     },
     "audit": {
       "title": "سرگرمی کا ریکارڈ",
@@ -1617,7 +1643,8 @@
       "inventory_recipe_saved": "ترکیب محفوظ",
       "deal_saved": "ڈیل محفوظ",
       "customer_saved": "گاہک محفوظ",
-      "customer_anonymized": "گاہک کی معلومات ہٹائی گئیں"
+      "customer_anonymized": "گاہک کی معلومات ہٹائی گئیں",
+      "ownership_transferred": "ملکیت منتقل کی گئی"
     },
     "approval": {
       "needed": "مینیجر کی منظوری درکار ہے",
@@ -1827,7 +1854,9 @@
       "paymentMethod": "ادائیگی کا طریقہ",
       "collected": "وصول",
       "formulaHint": "کل فروخت رعایت سے پہلے کی قیمتیں ہیں۔ خالص فروخت = کل − رعایت۔ کل بل = خالص + سروس چارج + ٹیکس ± گول۔ یہ فروخت ہے، منافع نہیں۔",
-      "cashByRegister": "کاؤنٹر وار کیش"
+      "cashByRegister": "کاؤنٹر وار کیش",
+      "myShift": "آج میری شفٹ",
+      "myShiftHint": "اس کاروباری دن میں آپ کے لیے گئے آرڈرز اور وصول کی گئی ادائیگیاں۔"
     },
     "menu": {
       "subtitle": "دستیابی {branch} کے لیے۔",
@@ -2046,7 +2075,8 @@
       "allSizes": "تمام سائز",
       "allSizesHint": "ہر اس سائز کے لیے جس کی اپنی ترکیب نہیں۔",
       "sizeHint": "اس سائز کی اپنی ترکیب تمام سائز والی ترکیب کی جگہ لیتی ہے۔",
-      "addIngredient": "جزو شامل کریں"
+      "addIngredient": "جزو شامل کریں",
+      "lowAlert": "وہ آئٹمز جو دوبارہ آرڈر کی حد یا اس سے کم ہیں"
     },
     "movementType": {
       "Opening": "ابتدائی",
@@ -2155,6 +2185,16 @@
       "required": "ریسٹورنٹ POS کا یہ ورژن اب سپورٹ نہیں ہوتا۔ براہ کرم ورژن {version} انسٹال کریں۔",
       "download": "ڈاؤن لوڈ کریں",
       "later": "بعد میں"
+    },
+    "ownership": {
+      "title": "مالک بنائیں",
+      "button": "مالک بنائیں",
+      "text": "{name} کو ریسٹورنٹ تک مکمل رسائی دیں، بشمول عملہ، سیٹنگز اور تمام رپورٹس۔ ریسٹورنٹ کسی اور کے حوالے کرنے کے لیے اسے استعمال کریں۔",
+      "confirm": "{name} تمام برانچوں تک رسائی کے ساتھ مالک بن جائیں گے۔",
+      "stepDown": "میں دستبردار ہو رہا ہوں",
+      "stepDownHint": "آپ مالک نہیں رہیں گے اور مینیجر کے طور پر کام جاری رکھیں گے۔",
+      "password": "آپ کا پاس ورڈ",
+      "done": "{name} اب مالک ہیں۔"
     }
   }
 }

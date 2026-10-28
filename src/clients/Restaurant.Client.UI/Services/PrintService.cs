@@ -10,16 +10,18 @@ namespace Restaurant.Client.UI.Services;
 /// <summary>
 /// Prints receipts and kitchen tickets: logs the print with the API (which marks reprints), renders the
 /// document into the hidden PrintHost, and hands it to the platform printer with the register's printer
-/// name and cash-drawer setting (PLAN.md section 10).
+/// name and cash-drawer setting (PLAN.md section 10). The register is this counter PC's own (set on the
+/// device in Settings → Counter devices), else the branch's default.
 /// </summary>
-public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionStore session)
+public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionStore session, DeviceRegistration device)
 {
     public const string ElementId = "rp-print-area";
 
     private TaskCompletionSource? _rendered;
     private static readonly TimeSpan RegisterCacheTime = TimeSpan.FromMinutes(5);
 
-    private (Guid BranchId, RegisterDto? Register, DateTimeOffset At)? _register;
+    /// <summary>Linked = this PC's own register (payments and cash go to its drawer), null = the default one.</summary>
+    private (Guid BranchId, RegisterDto? Register, Guid? Linked, DateTimeOffset At)? _register;
 
     public ReceiptDocumentDto? Document { get; private set; }
 
@@ -84,8 +86,25 @@ public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionSto
     public void Rendered() => _rendered?.TrySetResult();
 
     /// <summary>
-    /// The branch's default register (its printers and drawer), cached per branch for a few minutes, so a
-    /// printer change made on another PC reaches this one without restarting the app.
+    /// The register to send payments and cash movements to from this PC: its own register when it has one
+    /// in the selected branch, otherwise null (the API then uses the branch's default register).
+    /// </summary>
+    public async Task<Guid?> CounterRegisterIdAsync()
+    {
+        try
+        {
+            await RegisterAsync();
+            return _register?.Linked;
+        }
+        catch
+        {
+            return null; // offline or not allowed: the default register, as before
+        }
+    }
+
+    /// <summary>
+    /// This PC's register (its printers and drawer), else the branch's default, cached per branch for a few
+    /// minutes so a change made on another PC reaches this one without restarting the app.
     /// </summary>
     private async Task<RegisterDto?> RegisterAsync()
     {
@@ -93,9 +112,15 @@ public class PrintService(RestaurantApi api, IReceiptPrinter printer, SessionSto
         if (branchId is null) return null;
         if (_register is { } cached && cached.BranchId == branchId && DateTimeOffset.UtcNow - cached.At < RegisterCacheTime) return cached.Register;
 
+        Guid? linkedId = null;
+        if (device.Info?.BranchId == branchId && await device.GetTokenAsync() is { Length: > 0 } token)
+        {
+            linkedId = (await api.GetCurrentDeviceAsync(token))?.RegisterId;
+        }
         var registers = await api.GetRegistersAsync(branchId.Value);
-        var register = registers.FirstOrDefault(r => r.IsDefault);
-        _register = (branchId.Value, register, DateTimeOffset.UtcNow);
+        var linked = registers.FirstOrDefault(r => r.Id == linkedId && r.IsActive);
+        var register = linked ?? registers.FirstOrDefault(r => r.IsDefault);
+        _register = (branchId.Value, register, linked?.Id, DateTimeOffset.UtcNow);
         return register;
     }
 

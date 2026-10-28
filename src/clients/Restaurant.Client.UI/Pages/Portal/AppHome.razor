@@ -2,6 +2,8 @@
 @inherits PageBase
 @inject SessionStore Session
 @inject DeviceRegistration Device
+@inject StockAlerts Alerts
+@using Restaurant.Contracts.Inventory
 
 <PageTitle>@Brand.DisplayName</PageTitle>
 
@@ -36,6 +38,32 @@
     </section>
 }
 
+@if (Alerts.Items.Count > 0)
+{
+    <section class="rp-panel rp-alert-panel">
+        <div class="rp-row rp-mb">
+            <Icon Name="alert-circle-outline" Size="22" Color="var(--rp-warning)" />
+            <h2 class="rp-grow" style="margin:0">@T("home.lowStockTitle", ("n", Alerts.Items.Count.ToString()))</h2>
+            <a class="rp-btn ghost small" href="app/inventory">@T("home.openInventory")</a>
+        </div>
+        <table class="rp-table">
+            <thead><tr><th>@T("inventory.item")</th><th class="rp-right">@T("inventory.onHand")</th><th class="rp-right">@T("reports.reorderAt")</th><th class="rp-right">@T("home.short")</th></tr></thead>
+            <tbody>
+                @foreach (var item in Alerts.Items.Take(8))
+                {
+                    <tr>
+                        <td><span class="rp-strong">@item.Name</span> <span class="rp-hint">@item.Category</span></td>
+                        <td class="rp-right rp-nowrap @(item.OnHand < 0 ? "rp-error" : "")">@UnitCatalog.Describe(item.OnHand, item.BaseUnit)</td>
+                        <td class="rp-right rp-nowrap">@UnitCatalog.Describe(item.ReorderLevel, item.BaseUnit)</td>
+                        <td class="rp-right rp-nowrap rp-strong">@UnitCatalog.Describe(Math.Max(item.Shortfall, 0), item.BaseUnit)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (Alerts.Items.Count > 8) { <p class="rp-hint rp-mt-sm">@T("home.lowStockMore", ("n", (Alerts.Items.Count - 8).ToString()))</p> }
+    </section>
+}
+
 <section class="rp-panel">
     <h2>@T("home.sectionsTitle")</h2>
     <div class="rp-tiles">
@@ -65,8 +93,21 @@
 
     private bool CanSetUp => User.Can(Permissions.Tenant.ManageSettings) && User.Can(Permissions.Tenant.ManageBranding);
 
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Alerts.Changed += Refresh;
+    }
+
+    public override void Dispose()
+    {
+        Alerts.Changed -= Refresh;
+        base.Dispose();
+    }
+
     protected override async Task LoadAsync()
     {
+        await Alerts.RefreshAsync(force: true);
         if (!CanSetUp) return;
         _taxCount = (await Api.GetTaxRatesAsync()).Count;
         var branding = await Api.GetBrandingAsync();

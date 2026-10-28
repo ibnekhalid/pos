@@ -8,7 +8,8 @@ namespace Restaurant.Client.Core.Printing;
 /// <summary>
 /// Turns a receipt or kitchen-ticket document into ESC/POS bytes for thermal printers (48 columns on
 /// 80 mm paper, 32 on 58 mm): bold and double-size text, paper cut and the cash-drawer kick.
-/// Text mode prints Latin characters only; Urdu names fall back to "?" (PLAN.md section 10).
+/// Text mode prints ASCII only. A line with anything else (Urdu names) is drawn by the rasteriser and sent
+/// as a GS v 0 raster image the width of the paper; without one it falls back to "?" (PLAN.md section 10).
 /// </summary>
 public static class EscPos
 {
@@ -16,9 +17,11 @@ public static class EscPos
     private static readonly byte[] Cut = [0x1D, 0x56, 0x42, 0x00];
     private static readonly byte[] DrawerKick = [0x1B, 0x70, 0x00, 0x19, 0xFA];
 
-    public static byte[] Render(ReceiptDocumentDto d, bool openDrawer)
+    /// <param name="rasterizer">Draws the lines text mode can't print; null prints them with "?".</param>
+    public static byte[] Render(ReceiptDocumentDto d, bool openDrawer, ITextRasterizer? rasterizer = null)
     {
-        var p = new Builder(d.PaperSize == ReceiptPaperSize.Thermal58mm ? 32 : 48);
+        var narrow = d.PaperSize == ReceiptPaperSize.Thermal58mm;
+        var p = new Builder(narrow ? 32 : 48, narrow ? 384 : 576, rasterizer);
         p.Raw(Init);
         if (d.Kind == PrintKind.KitchenTicket) Kitchen(p, d);
         else Receipt(p, d);
@@ -113,16 +116,20 @@ public static class EscPos
     private static string Money(decimal amount, string currency) =>
         (currency == "PKR" ? "Rs " : currency + " ") + amount.ToString(amount % 1 == 0 ? "#,0" : "#,0.00", CultureInfo.InvariantCulture);
 
-    private sealed class Builder(int columns)
+    /// <param name="dots">Paper width in dots, for raster lines.</param>
+    private sealed class Builder(int columns, int dots, ITextRasterizer? rasterizer)
     {
         private readonly MemoryStream _out = new();
         private int _width = 1;
+        private int _height = 1;
+        private bool _center;
+        private bool _bold;
 
         public void Raw(byte[] bytes) => _out.Write(bytes);
 
-        public Builder Center() { Raw([0x1B, 0x61, 0x01]); return this; }
-        public Builder Left() { Raw([0x1B, 0x61, 0x00]); return this; }
-        public Builder Bold(bool on) { Raw([0x1B, 0x45, (byte)(on ? 1 : 0)]); return this; }
+        public Builder Center() { _center = true; Raw([0x1B, 0x61, 0x01]); return this; }
+        public Builder Left() { _center = false; Raw([0x1B, 0x61, 0x00]); return this; }
+        public Builder Bold(bool on) { _bold = on; Raw([0x1B, 0x45, (byte)(on ? 1 : 0)]); return this; }
 
         /// <param name="factor">1 = normal, 2 = double width (and height unless height-only).</param>
         public Builder Size(int factor, bool height = false)
@@ -130,6 +137,7 @@ public static class EscPos
             _width = height ? 1 : factor;
             var w = height ? 0 : factor - 1;
             var h = factor == 1 && !height ? 0 : 1;
+            _height = h + 1;
             Raw([0x1D, 0x21, (byte)((w << 4) | h)]);
             return this;
         }
@@ -138,6 +146,7 @@ public static class EscPos
 
         public Builder Line(string text)
         {
+            if (NeedsRaster(text)) { Picture(text, null); return this; }
             Raw(Encode(text.Length > Columns ? text[..Columns] : text));
             Raw([0x0A]);
             return this;
@@ -146,12 +155,14 @@ public static class EscPos
         public void Wrap(string? text)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
+            if (NeedsRaster(text)) { Picture(text, null); return; }
             foreach (var part in Split(text, Columns)) Line(part);
         }
 
         /// <summary>Left text and a right-aligned amount on one line (left wraps if it's too long).</summary>
         public Builder Pair(string left, string right)
         {
+            if (NeedsRaster(left) || NeedsRaster(right)) { Picture(left, right); return this; }
             var room = Columns - right.Length - 1;
             var parts = Split(left, Math.Max(room, 8)).ToList();
             for (var i = 0; i < parts.Count - 1; i++) Line(parts[i]);
@@ -189,7 +200,39 @@ public static class EscPos
             if (line.Length > 0) yield return line.ToString();
         }
 
+        /// <summary>
+        /// The line as a GS v 0 raster image, wrapped by the rasteriser. A line that starts with Urdu reads
+        /// right to left and is right-aligned, unless centred; amounts in a pair stay on the right.
+        /// </summary>
+        private void Picture(string text, string? end)
+        {
+            var rtl = RightToLeft(text);
+            var align = _center ? RasterAlign.Center : rtl && end is null ? RasterAlign.Right : RasterAlign.Left;
+            var image = rasterizer!.Rasterize(new RasterText(text, end, dots, align, rtl, _bold, _width, _height));
+            var row = image.Width / 8;
+            if (image.Width != dots || image.Bits.Length != row * image.Height) throw new InvalidOperationException("The rasteriser returned an image of the wrong size.");
+            if (image.Height == 0) return;
+            Raw([0x1D, 0x76, 0x30, 0x00, (byte)row, (byte)(row >> 8), (byte)image.Height, (byte)(image.Height >> 8)]);
+            Raw(image.Bits);
+        }
+
+        private bool NeedsRaster(string text) => rasterizer is not null && !text.All(Printable);
+
+        /// <summary>The first strong character decides the direction (Unicode bidi rule P2); digits are neutral.</summary>
+        private static bool RightToLeft(string text)
+        {
+            foreach (var ch in text)
+            {
+                if (char.IsDigit(ch)) continue;
+                if (ch is >= '֐' and <= 'ࣿ' or >= 'יִ' and <= '﷿' or >= 'ﹰ' and <= 'ﻼ') return true;
+                if (char.IsLetter(ch)) return false;
+            }
+            return false;
+        }
+
+        private static bool Printable(char ch) => ch is >= ' ' and <= '~';
+
         /// <summary>Code page 437 text: anything outside ASCII becomes "?" (printers differ on the rest).</summary>
-        private static byte[] Encode(string text) => text.Select(ch => ch is >= ' ' and <= '~' ? (byte)ch : (byte)'?').ToArray();
+        private static byte[] Encode(string text) => text.Select(ch => Printable(ch) ? (byte)ch : (byte)'?').ToArray();
     }
 }

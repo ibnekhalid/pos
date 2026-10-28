@@ -32,6 +32,10 @@ public class InventoryController(StockService stock) : ControllerBase
     [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Count, Permissions.Inventory.Wastage, Permissions.Inventory.Adjust, Permissions.Reports.Inventory)]
     public Task<IReadOnlyList<StockLevelDto>> Levels(CancellationToken ct) => stock.LevelsAsync(ct);
 
+    [HttpGet("low-stock")]
+    [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Count, Permissions.Inventory.Wastage, Permissions.Inventory.Adjust, Permissions.Reports.Inventory)]
+    public Task<IReadOnlyList<LowStockDto>> LowStock(CancellationToken ct) => stock.LowStockAsync(ct);
+
     [HttpGet("movements")]
     [RequirePermission(Permissions.Inventory.Receive, Permissions.Inventory.Count, Permissions.Inventory.Wastage, Permissions.Inventory.Adjust, Permissions.Reports.Inventory)]
     public Task<IReadOnlyList<StockMovementDto>> Movements([FromQuery] Guid? itemId, [FromQuery] int take = 100, CancellationToken ct = default) =>

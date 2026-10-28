@@ -59,7 +59,29 @@ else
                 }
             }
         </section>
+
+        @if (User.Can(Permissions.Tenant.TransferOwnership) && !_member.IsOwner && _member.Status == MembershipStatus.Active)
+        {
+            <section class="rp-panel">
+                <h2>@T("ownership.title")</h2>
+                <p class="rp-muted">@T("ownership.text", ("name", _member.DisplayName))</p>
+                <RpButton Variant="secondary" Icon="ribbon-outline" OnClick="() => { _transferOpen = true; _password = null; _stepDown = false; Error = null; }">@T("ownership.button")</RpButton>
+            </section>
+        }
     </div>
+
+    <Dialog Open="_transferOpen" OpenChanged="open => _transferOpen = open" Title="@T("ownership.title")" Busy="Busy">
+        <ChildContent>
+            <p>@T("ownership.confirm", ("name", _member.DisplayName))</p>
+            <CheckBox Label="@T("ownership.stepDown")" Hint="@T("ownership.stepDownHint")" @bind-Value="_stepDown" />
+            <TextField Label="@T("ownership.password")" Type="password" @bind-Value="_password" AutoComplete="current-password" Error="@FieldError("Password")" OnEnter="TransferAsync" />
+            @if (Error is not null) { <Notice Kind="danger">@Error</Notice> }
+        </ChildContent>
+        <Footer>
+            <RpButton Variant="ghost" OnClick="() => _transferOpen = false">@T("common.cancel")</RpButton>
+            <RpButton Loading="Busy" Disabled="string.IsNullOrEmpty(_password)" OnClick="TransferAsync">@T("ownership.button")</RpButton>
+        </Footer>
+    </Dialog>
 }
 
 @code {
@@ -73,6 +95,8 @@ else
     private HashSet<Guid> _roleIds = [];
     private HashSet<Guid> _branchIds = [];
     private bool _allBranches, _disabled;
+    private bool _transferOpen, _stepDown;
+    private string? _password;
 
     /// <summary>The API makes the same checks; this only avoids offering what would be refused.</summary>
     private bool CanEdit => User.Can(Permissions.Staff.Manage) && (!_member!.IsOwner || User.IsOwner);
@@ -98,6 +122,18 @@ else
     private Task SaveAsync() => RunAsync(async () =>
         Fill(await Api.UpdateStaffAsync(MembershipId, new UpdateStaffRequest(_name ?? "", _roleIds.ToList(), _allBranches,
             _allBranches ? [] : _branchIds.ToList(), _disabled))), T("common.saved"));
+
+    private async Task TransferAsync()
+    {
+        var stepDown = _stepDown;
+        var ok = await RunAsync(async () =>
+        {
+            Fill(await Api.TransferOwnershipAsync(MembershipId, new TransferOwnershipRequest(_password ?? "", stepDown)));
+            await User.LoadAsync(); // the caller's own permissions may have changed
+        }, T("ownership.done", ("name", _member!.DisplayName)));
+        _password = null;
+        if (ok) _transferOpen = false;
+    }
 
     private Task NewCodeAsync() => RunAsync(async () =>
     {

@@ -3,6 +3,7 @@
 @inject DeviceRegistration Device
 @inject IPlatformInfo Platform
 @inject SessionStore Session
+@inject PrintService Printer
 
 <PageTitle>@T("devices.title")</PageTitle>
 <PageHeader Title="@T("devices.title")" Subtitle="@T("devices.summary")" BackHref="app/settings" />
@@ -52,7 +53,7 @@ else
         else
         {
             <table class="rp-table">
-                <thead><tr><th>@T("devices.name")</th><th>@T("taxes.branch")</th><th>@T("devices.lastUsed")</th><th></th></tr></thead>
+                <thead><tr><th>@T("devices.name")</th><th>@T("taxes.branch")</th><th>@T("devices.till")</th><th>@T("devices.lastUsed")</th><th></th></tr></thead>
                 <tbody>
                     @foreach (var device in _devices)
                     {
@@ -63,6 +64,23 @@ else
                                 @if (device.IsRevoked) { <Badge Kind="danger">@T("devices.revoked")</Badge> }
                             </td>
                             <td>@BranchName(device.BranchId)</td>
+                            <td>
+                                @if (device.IsRevoked)
+                                {
+                                    @RegisterName(device)
+                                }
+                                else
+                                {
+                                    <select class="rp-input rp-boxed" value="@(device.RegisterId?.ToString() ?? "")" disabled="@Busy" aria-label="@T("devices.till")"
+                                            @onchange="e => SetRegisterAsync(device, e.Value?.ToString())">
+                                        <option value="">@T("devices.defaultRegister")</option>
+                                        @foreach (var register in RegistersOf(device.BranchId).Where(r => r.IsActive || r.Id == device.RegisterId))
+                                        {
+                                            <option value="@register.Id">@register.Name</option>
+                                        }
+                                    </select>
+                                }
+                            </td>
                             <td>@(device.LastSeenAt is null ? "—" : Format.DateTime(device.LastSeenAt))</td>
                             <td class="rp-right">
                                 @if (!device.IsRevoked)
@@ -86,6 +104,7 @@ else
     private IReadOnlyList<BranchDto> _branches = [];
     private DeviceDto? _revoking;
     private string? _name, _branchId;
+    private Dictionary<Guid, IReadOnlyList<RegisterDto>> _registers = [];
 
     protected override async Task LoadAsync()
     {
@@ -94,7 +113,24 @@ else
         _branches = await Api.GetBranchesAsync();
         _name ??= Platform.DeviceName;
         _branchId ??= (Session.Current?.BranchId ?? _branches.FirstOrDefault()?.Id)?.ToString();
+        foreach (var branchId in _devices.Select(d => d.BranchId).Distinct())
+        {
+            _registers[branchId] = await Api.GetRegistersAsync(branchId);
+        }
     }
+
+    private IReadOnlyList<RegisterDto> RegistersOf(Guid branchId) => _registers.GetValueOrDefault(branchId) ?? [];
+
+    private string RegisterName(DeviceDto device) =>
+        RegistersOf(device.BranchId).FirstOrDefault(r => r.Id == device.RegisterId)?.Name ?? T("devices.defaultRegister");
+
+    /// <summary>Which till this PC is: its printers and cash drawer, and the drawer its payments go to.</summary>
+    private Task SetRegisterAsync(DeviceDto device, string? value) => RunAsync(async () =>
+    {
+        await Api.UpdateDeviceAsync(device.Id, new UpdateDeviceRequest(device.Name, Guid.TryParse(value, out var id) ? id : null));
+        _devices = await Api.GetDevicesAsync();
+        Printer.Forget();
+    }, T("common.saved"));
 
     private string BranchName(Guid id) => _branches.FirstOrDefault(b => b.Id == id)?.Name ?? "—";
 

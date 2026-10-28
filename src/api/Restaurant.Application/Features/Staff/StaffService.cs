@@ -10,6 +10,7 @@ using Restaurant.Application.Common.Security;
 using Restaurant.Application.Common.Services;
 using Restaurant.Contracts.Enums;
 using Restaurant.Contracts.Staff;
+using Restaurant.Domain.Constants;
 using Restaurant.Domain.Entities;
 
 namespace Restaurant.Application.Features.Staff;
@@ -212,6 +213,70 @@ public class StaffService(
         audit.Record(AuditActions.StaffInviteIssued, nameof(StaffMembership), membership.Id);
         await db.SaveChangesAsync(cancellationToken);
         return new StaffInviteDto(ToDto(membership), code, membership.InviteExpiresAt!.Value);
+    }
+
+    /// <summary>
+    /// Hands the restaurant to another active staff member: they become an owner (all branches), and with
+    /// StepDown the caller keeps working as a Manager. Confirmed with the caller's password; one transaction,
+    /// one audit row.
+    /// </summary>
+    public async Task<StaffMemberDto> TransferOwnershipAsync(Guid membershipId, TransferOwnershipRequest request, CancellationToken cancellationToken)
+    {
+        var tenantId = tenant.RequireTenantId();
+        if (!tenant.HasFullAccess)
+        {
+            throw new ForbiddenAccessException("Only an owner can hand over the restaurant.");
+        }
+        if (membershipId == tenant.MembershipId)
+        {
+            throw new ValidationAppException(nameof(membershipId), "Choose someone else.");
+        }
+
+        var caller = await users.FindByIdAsync(tenant.RequireUserId().ToString());
+        if (caller is null || string.IsNullOrEmpty(request.Password) || !await users.CheckPasswordAsync(caller, request.Password))
+        {
+            throw new ValidationAppException(nameof(request.Password), "That password isn't right.");
+        }
+
+        var target = await FindAsync(membershipId, cancellationToken);
+        if (target.Status != MembershipStatus.Active)
+        {
+            throw new ConflictException("Only someone who has accepted their invite and isn't disabled can become an owner.");
+        }
+        if (target.Roles.Any(r => r.Role!.FullAccess))
+        {
+            throw new ConflictException("This person is already an owner.");
+        }
+
+        var roles = await db.TenantRoles.Where(r => r.IsSystem && (r.SystemKey == SystemRoleKeys.Owner || r.SystemKey == SystemRoleKeys.Manager))
+            .ToListAsync(cancellationToken);
+        var ownerRole = roles.Single(r => r.SystemKey == SystemRoleKeys.Owner);
+        var before = ToDto(target);
+
+        target.Roles.Add(new MembershipRole { TenantId = tenantId, MembershipId = target.Id, RoleId = ownerRole.Id, Role = ownerRole });
+        target.AllBranches = true;
+        target.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (request.StepDown)
+        {
+            var me = await FindAsync(tenant.RequireMembershipId(), cancellationToken);
+            foreach (var link in me.Roles.Where(r => r.Role!.FullAccess).ToList())
+            {
+                me.Roles.Remove(link);
+                db.MembershipRoles.Remove(link);
+            }
+            if (me.Roles.Count == 0 && roles.FirstOrDefault(r => r.SystemKey == SystemRoleKeys.Manager) is { } manager)
+            {
+                me.Roles.Add(new MembershipRole { TenantId = tenantId, MembershipId = me.Id, RoleId = manager.Id, Role = manager });
+            }
+            me.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        audit.Record(AuditActions.OwnershipTransferred, nameof(StaffMembership), target.Id, before,
+            new { NewOwner = target.DisplayName, PreviousOwnerSteppedDown = request.StepDown });
+        await db.SaveChangesAsync(cancellationToken);
+        access.InvalidateTenant(tenantId);
+        return ToDto(target);
     }
 
     private string IssueInvite(StaffMembership membership)

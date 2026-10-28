@@ -25,8 +25,10 @@ public static class AuditActions
     public const string StaffInviteIssued = "staff.invite_issued";
     public const string StaffInviteAccepted = "staff.invite_accepted";
     public const string StaffPinSet = "staff.pin_set";
+    public const string OwnershipTransferred = "ownership.transferred";
     public const string DeviceRegistered = "device.registered";
     public const string DeviceRevoked = "device.revoked";
+    public const string DeviceUpdated = "device.updated";
     public const string BrandingUpdated = "branding.updated";
     public const string LogoUpdated = "branding.logo_updated";
     public const string Login = "auth.login";

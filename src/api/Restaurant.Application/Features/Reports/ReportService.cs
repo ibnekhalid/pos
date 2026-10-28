@@ -218,6 +218,25 @@ public class ReportService(IApplicationDbContext db, ITenantContext tenant, Stoc
             activity.Sum(a => a.ReceivedValue), activity.Sum(a => a.ConsumedValue), activity.Sum(a => a.WastedValue), activity.Sum(a => a.VarianceValue));
     }
 
+    /// <summary>
+    /// A cashier's "own shift totals" (PLAN.md section 5): no report permission needed, because it only ever
+    /// shows the caller's own orders and payments in the open business day. Null when the day isn't started.
+    /// </summary>
+    public async Task<MyShiftDto?> MyShiftAsync(CancellationToken ct)
+    {
+        var branchId = tenant.RequireBranchId();
+        var session = await db.BusinessSessions.Where(s => s.BranchId == branchId && s.Status == SessionStatus.Open)
+            .Select(s => new { s.Id, s.BusinessDate }).FirstOrDefaultAsync(ct);
+        if (session is null) return null;
+
+        var scope = await ResolveAsync(new ReportFilter(session.BusinessDate, session.BusinessDate, SessionId: session.Id, CashierId: tenant.RequireUserId()), ct);
+        var counted = (await OrderRowsAsync(scope, ct)).Where(o => o.Counted).ToList();
+        var payments = await PaymentRowsAsync(scope, ct);
+        var refunds = await RefundRowsAsync(scope, ct);
+        return new MyShiftDto(session.BusinessDate, counted.Count, counted.Sum(o => o.NetSales), counted.Sum(o => o.Total),
+            payments.Sum(p => p.Amount), refunds.Sum(r => r.Amount), ByMethod(payments, refunds));
+    }
+
     /// <summary>Staff of the restaurant, for the cashier filter.</summary>
     public async Task<IReadOnlyList<ReportStaffDto>> StaffAsync(CancellationToken ct)
     {

@@ -34,6 +34,12 @@ public class StaffController(StaffService staff, RoleService roles) : Controller
     [RequirePermission(Permissions.Staff.Manage)]
     public Task<StaffInviteDto> ReissueInvite(Guid membershipId, CancellationToken ct) => staff.ReissueInviteAsync(membershipId, ct);
 
+    /// <summary>Makes this staff member an owner; optionally the caller steps down to Manager.</summary>
+    [HttpPost("staff/{membershipId:guid}/transfer-ownership")]
+    [RequirePermission(Permissions.Tenant.TransferOwnership)]
+    public Task<StaffMemberDto> TransferOwnership(Guid membershipId, TransferOwnershipRequest request, CancellationToken ct) =>
+        staff.TransferOwnershipAsync(membershipId, request, ct);
+
     [HttpGet("permissions")]
     [RequirePermission(Permissions.Staff.View)]
     public IReadOnlyList<PermissionDto> PermissionCatalog() => RoleService.Catalog();
