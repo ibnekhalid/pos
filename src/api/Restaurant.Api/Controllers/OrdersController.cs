@@ -119,8 +119,9 @@ public class OrdersController(OrderService orders, PaymentService payments, Rece
 [Authorize]
 public class KitchenController(KitchenService kitchen) : ControllerBase
 {
+    /// <summary>Also for receipts.print: the counter prints kitchen tickets (no prices or customer details in them).</summary>
     [HttpGet("tickets")]
-    [RequirePermission(Permissions.Kitchen.View)]
+    [RequirePermission(Permissions.Kitchen.View, Permissions.Payments.PrintReceipts)]
     public Task<IReadOnlyList<KitchenTicketDto>> Tickets([FromQuery] Guid? stationId, CancellationToken ct) => kitchen.ListAsync(stationId, ct);
 
     [HttpPut("tickets/{id:guid}/status")]

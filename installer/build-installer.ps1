@@ -4,6 +4,7 @@
 #   .\installer\build-installer.ps1                  # version from ApplicationDisplayVersion in the .csproj
 #   .\installer\build-installer.ps1 -SkipPublish     # re-package the last publish
 #   .\installer\build-installer.ps1 -PublishOnly     # just the folder (no Inno Setup needed)
+#   .\installer\build-installer.ps1 -Version 0.4     # a release version (the apps pipeline sets it)
 #
 # Output: installer\output\Restaurant-POS-Setup-<version>.exe (+ its SHA-256). Needs the .NET 10 SDK with
 # the maui-windows workload, and Inno Setup 6 (winget install JRSoftware.InnoSetup) unless -PublishOnly.
@@ -12,6 +13,7 @@
 # needs nothing installed except the WebView2 runtime. Bump ApplicationDisplayVersion and
 # ApplicationVersion in src\clients\Restaurant.Desktop\Restaurant.Desktop.csproj before each release.
 param(
+    [string]$Version,
     [switch]$SkipPublish,
     [switch]$PublishOnly,
     [string]$IsccPath
@@ -24,9 +26,11 @@ $PublishDir = Join-Path $PSScriptRoot "publish"
 $Script = Join-Path $PSScriptRoot "Restaurant.Desktop.iss"
 $Framework = "net10.0-windows10.0.19041.0"
 
-[xml]$Csproj = Get-Content -Raw $Project
-$Version = ($Csproj.Project.PropertyGroup | ForEach-Object { $_.ApplicationDisplayVersion } | Where-Object { $_ } | Select-Object -First 1)
-if (-not $Version) { throw "ApplicationDisplayVersion not found in $Project" }
+if (-not $Version) {
+    [xml]$Csproj = Get-Content -Raw $Project
+    $Version = ($Csproj.Project.PropertyGroup | ForEach-Object { $_.ApplicationDisplayVersion } | Where-Object { $_ } | Select-Object -First 1)
+    if (-not $Version) { throw "ApplicationDisplayVersion not found in $Project" }
+}
 Write-Host "=== Restaurant POS desktop $Version ==="
 
 if (-not $SkipPublish) {
@@ -34,7 +38,7 @@ if (-not $SkipPublish) {
     if (Test-Path $PublishDir) { Remove-Item -Recurse -Force $PublishDir }
     # Release builds call https://api.restaurant.dsnoopdoc.com (MauiProgram.ProductionApi).
     & dotnet publish $Project -f $Framework -c Release -r win-x64 --self-contained true `
-        -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -o $PublishDir
+        -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true "-p:ApplicationDisplayVersion=$Version" -o $PublishDir
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit $LASTEXITCODE)" }
 }
 

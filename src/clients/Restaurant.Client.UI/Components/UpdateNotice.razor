@@ -3,12 +3,13 @@
 @inject RestaurantApi Api
 @inject IPlatformInfo Platform
 
-@* Desktop app only: a dismissible strip when a newer version is published (GET /api/desktop-release).
-   Never blocks the till — "required" only changes the wording. Checked once per app run. *@
+@* The installed Windows app only: a dismissible strip when a newer version is published
+   (GET /api/app-releases/{platform}). Never blocks the till — "required" only changes the wording.
+   Checked once per app run. *@
 @if (_release is not null && !_dismissedThisRun)
 {
     <Notice Kind="@(_required ? "danger" : "warning")" Class="rp-mb">
-        @(_required ? T("update.required", ("version", _release.LatestVersion!)) : T("update.available", ("version", _release.LatestVersion!)))
+        @(_required ? T("update.required", ("version", _release.Version)) : T("update.available", ("version", _release.Version)))
         <a class="rp-link" href="@_release.DownloadUrl" target="_blank" rel="noopener">@T("update.download")</a>
         · <button class="rp-link" @onclick="Dismiss">@T("update.later")</button>
     </Notice>
@@ -16,10 +17,10 @@
 
 @code {
     // Shared by every layout instance: signing out and in again must not call the API again.
-    private static Task<DesktopReleaseDto?>? _check;
+    private static Task<AppReleaseDto?>? _check;
     private static bool _dismissedThisRun;
 
-    private DesktopReleaseDto? _release;
+    private AppReleaseDto? _release;
     private bool _required;
 
     protected override async Task OnInitializedAsync()
@@ -27,18 +28,18 @@
         if (!Platform.IsDesktop || !TryParse(Platform.AppVersion, out var current)) return;
 
         var release = await (_check ??= CheckAsync());
-        if (release is null || !TryParse(release.LatestVersion, out var latest) || latest <= current) return;
+        if (release is null || !TryParse(release.Version, out var latest) || latest <= current) return;
         if (!Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var url) || (url.Scheme != Uri.UriSchemeHttps && url.Scheme != Uri.UriSchemeHttp)) return;
 
         _required = TryParse(release.MinimumVersion, out var minimum) && current < minimum;
         _release = release;
     }
 
-    private async Task<DesktopReleaseDto?> CheckAsync()
+    private async Task<AppReleaseDto?> CheckAsync()
     {
         try
         {
-            return await Api.GetDesktopReleaseAsync();
+            return await Api.GetAppReleaseAsync("windows");
         }
         catch (Exception)
         {

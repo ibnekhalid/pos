@@ -10,6 +10,7 @@
 @inject IWindowService Window
 @inject DeviceRegistration Device
 @inject StockAlerts Alerts
+@inject KitchenAutoPrint KitchenPrint
 @inject Restaurant.Client.Core.Offline.OfflineSync OfflineSync
 
 @* Signed-in shell: navigation (only what the user may use), branch switcher, user menu, and on the
@@ -146,7 +147,11 @@
         Alerts.Changed += Refresh;
         OfflineSync.Changed += Refresh;
         Nav.LocationChanged += OnLocationChanged;
-        if (Device.Supported) _ = OfflineSync.StartAsync();
+        if (Device.Supported)
+        {
+            _ = OfflineSync.StartAsync();
+            KitchenPrint.Start(); // does nothing unless this PC is set to print every kitchen ticket
+        }
 
         if (!EnsureSignedIn()) return;
         await LoadUserAsync();

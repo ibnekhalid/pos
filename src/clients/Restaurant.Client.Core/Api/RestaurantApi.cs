@@ -30,6 +30,12 @@ public class RestaurantApi(ApiClient api, SessionStore session)
     public Task<ApiInfoDto> GetInfoAsync() => api.SendAnonymousAsync<ApiInfoDto>(HttpMethod.Get, "api/info", null);
 
     /// <summary>The newest desktop app (version and installer link), for the update notice.</summary>
+    public Task<IReadOnlyList<AppReleaseDto>> GetAppReleasesAsync() => api.GetAsync<IReadOnlyList<AppReleaseDto>>("api/app-releases");
+
+    /// <summary>For the update notice: no sign-in needed. Null when nothing is published for the platform.</summary>
+    public Task<AppReleaseDto?> GetAppReleaseAsync(string platform) =>
+        api.SendAnonymousAsync<AppReleaseDto?>(HttpMethod.Get, $"api/app-releases/{Uri.EscapeDataString(platform)}", null);
+
     public Task<DesktopReleaseDto> GetDesktopReleaseAsync() =>
         api.SendAnonymousAsync<DesktopReleaseDto>(HttpMethod.Get, "api/desktop-release", null);
 

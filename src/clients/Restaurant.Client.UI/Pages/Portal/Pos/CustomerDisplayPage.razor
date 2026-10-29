@@ -1,0 +1,113 @@
+@page "/app/display"
+@layout BareLayout
+@implements IAsyncDisposable
+@inject CustomerDisplay Display
+@inject UiInterop Ui
+@using System.Text.Json
+@* The customer-facing screen (Phase 6). It needs no sign-in: it only shows what the POS sends it. *@
+
+<PageTitle>@(_state?.BusinessName ?? "Restaurant POS")</PageTitle>
+
+<div class="rp-cd" style="--rp-primary:@(_state?.PrimaryColor ?? "#0F766E")" dir="@(_state?.Language == "ur" ? "rtl" : "ltr")">
+    @if (_state is null || _state.Status == "idle")
+    {
+        <div class="rp-cd-idle">
+            @if (_state?.LogoUrl is { } logo) { <img src="@logo" alt="" class="rp-cd-logo" /> }
+            <h1>@(_state?.BusinessName ?? "")</h1>
+            <p>@Text("welcome")</p>
+        </div>
+    }
+    else
+    {
+        <header class="rp-cd-head">
+            @if (_state.LogoUrl is { } logo) { <img src="@logo" alt="" class="rp-cd-logo small" /> }
+            <span class="rp-grow">@_state.BusinessName</span>
+            @if (_state.OrderNumber is not null) { <span>@Text("order") @_state.OrderNumber</span> }
+        </header>
+        @if (_state.Status == "paid")
+        {
+            <div class="rp-cd-paid">
+                <h1>@Text("thanks")</h1>
+                <div class="rp-cd-row big"><span>@Text("total")</span><span>@Money(_state.Total)</span></div>
+                @if (_state.Paid is { } paid) { <div class="rp-cd-row"><span>@Text("paid")</span><span>@Money(paid)</span></div> }
+                @if (_state.Change is > 0) { <div class="rp-cd-row big accent"><span>@Text("change")</span><span>@Money(_state.Change.Value)</span></div> }
+            </div>
+        }
+        else
+        {
+            <div class="rp-cd-lines">
+                @foreach (var line in _state.Lines)
+                {
+                    <div class="rp-cd-line">
+                        <span class="rp-cd-qty">@line.Quantity ×</span>
+                        <span class="rp-grow">@line.Name @if (line.Detail is not null) { <small>@line.Detail</small> }</span>
+                        <span>@Money(line.Total)</span>
+                    </div>
+                }
+            </div>
+            <footer class="rp-cd-totals">
+                <div class="rp-cd-row"><span>@Text("subtotal")</span><span>@Money(_state.Subtotal)</span></div>
+                @if (_state.Discount > 0) { <div class="rp-cd-row"><span>@Text("discount")</span><span>-@Money(_state.Discount)</span></div> }
+                @if (_state.ServiceCharge > 0) { <div class="rp-cd-row"><span>@Text("service")</span><span>@Money(_state.ServiceCharge)</span></div> }
+                @if (_state.Tax > 0) { <div class="rp-cd-row"><span>@Text("tax")</span><span>@Money(_state.Tax)</span></div> }
+                <div class="rp-cd-row big"><span>@Text("total")</span><span>@Money(_state.Total)</span></div>
+            </footer>
+        }
+    }
+</div>
+
+@code {
+    private CustomerDisplayState? _state;
+    private DotNetObjectReference<CustomerDisplayPage>? _self;
+    private int? _listener;
+
+    protected override void OnInitialized()
+    {
+        _state = Display.State;
+        Display.Changed += OnChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _self = DotNetObjectReference.Create(this);
+        _listener = await Ui.ListenAsync(CustomerDisplay.Channel, _self);
+    }
+
+    /// <summary>From another browser tab or window (the web app's POS).</summary>
+    [JSInvokable]
+    public void OnMessage(string json)
+    {
+        if (JsonSerializer.Deserialize<CustomerDisplayState>(json, Restaurant.Client.Core.Json.Options) is { } state) OnChanged(state);
+    }
+
+    private void OnChanged(CustomerDisplayState state) => InvokeAsync(() =>
+    {
+        _state = state;
+        StateHasChanged();
+    });
+
+    private string Money(decimal amount) => Format.Money(amount, _state?.CurrencyCode ?? "PKR");
+
+    // The display follows the receipt language the POS sends, not this window's own setting.
+    private string Text(string key) => (_state?.Language == "ur" ? Urdu : English).GetValueOrDefault(key, key);
+
+    private static readonly Dictionary<string, string> English = new()
+    {
+        ["welcome"] = "Welcome", ["order"] = "Order", ["subtotal"] = "Subtotal", ["discount"] = "Discount", ["service"] = "Service charge",
+        ["tax"] = "Tax", ["total"] = "Total", ["paid"] = "Paid", ["change"] = "Your change", ["thanks"] = "Thank you!"
+    };
+
+    private static readonly Dictionary<string, string> Urdu = new()
+    {
+        ["welcome"] = "خوش آمدید", ["order"] = "آرڈر", ["subtotal"] = "ذیلی کل", ["discount"] = "رعایت", ["service"] = "سروس چارج",
+        ["tax"] = "ٹیکس", ["total"] = "کل", ["paid"] = "ادا شدہ", ["change"] = "آپ کی بقایا رقم", ["thanks"] = "شکریہ!"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        Display.Changed -= OnChanged;
+        if (_listener is { } id) await Ui.UnlistenAsync(id);
+        _self?.Dispose();
+    }
+}

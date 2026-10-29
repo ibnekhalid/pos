@@ -43,6 +43,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddSignalR()
     .AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<IRealtimeNotifier, SignalRNotifier>();
+builder.Services.AddSingleton<Restaurant.Api.Services.AppReleases>();
 
 // --- Identity: users, password hashing, lockout, reset tokens (PLAN.md D2) ---
 builder.Services

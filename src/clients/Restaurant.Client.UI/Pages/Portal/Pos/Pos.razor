@@ -15,6 +15,8 @@
 @inject OfflineSync OfflineSync
 @inject DeviceRegistration Device
 @inject SessionStore Session
+@inject CustomerDisplay Display
+@inject IWindowService Window
 @using Restaurant.Client.Core.Offline
 @using Restaurant.Contracts.Receipts
 
@@ -229,7 +231,10 @@ else if (_menu is not null)
                 <RpButton Disabled="(!HasItems && _existing is null) || !User.Can(Permissions.Payments.Take)" Loading="Busy && _paying"
                           Icon="cash-outline" OnClick="() => SubmitAsync(pay: true)">@T("pos.pay") <span class="rp-kbd">F9</span></RpButton>
             </div>
-            <RpButton Variant="ghost" Small Block OnClick="NewOrder">@T("pos.clear") <span class="rp-kbd">F2</span></RpButton>
+            <div class="rp-row">
+                <RpButton Variant="ghost" Small Class="rp-grow" OnClick="NewOrder">@T("pos.clear") <span class="rp-kbd">F2</span></RpButton>
+                <RpButton Variant="ghost" Small Icon="tv-outline" OnClick="OpenDisplayAsync" Title="@T("display.openHint")">@T("display.open")</RpButton>
+            </div>
         </aside>
     </div>
 }
@@ -336,6 +341,7 @@ else if (_menu is not null)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        await PublishDisplayAsync();
         if (_hotkeys is null && _menu is not null)
         {
             _self = DotNetObjectReference.Create(this);
@@ -728,12 +734,79 @@ else if (_menu is not null)
         }
 
         if (tableId is { } taken) _offlineTables.Add(taken);
+        if (payment is not null) ShowPaid(number, estimate.Total, payment.Tendered ?? estimate.Total, payment.Tendered is { } given ? given - estimate.Total : 0);
         ResetCart();
         Success = printError is null ? T("offline.saved", ("number", number)) : T("offline.savedPrintFailed", ("number", number), ("error", printError));
     }
 
+    // ------------------------------------------------------------ customer display (Phase 6)
+
+    private string? _displayJson;
+    private (string Number, decimal Total, decimal Paid, decimal Change, DateTime Until)? _paidShown;
+    private Timer? _paidTimer;
+
+    /// <summary>Desktop: its own window, full screen on the second monitor. Web: a pop-up window to drag to the customer's screen.</summary>
+    private async Task OpenDisplayAsync()
+    {
+        _displayJson = null; // the new window gets the current state at once
+        if (!await Window.OpenCustomerDisplayAsync() && !await Ui.OpenWindowAsync("app/display", "rp-customer-display"))
+        {
+            Error = T("display.blocked");
+        }
+    }
+
+    /// <summary>After a payment the customer sees the total and their change for 20 seconds, then the welcome screen.</summary>
+    private void ShowPaid(string number, decimal total, decimal paid, decimal change)
+    {
+        _paidShown = (number, total, paid, change, DateTime.UtcNow.AddSeconds(20));
+        _paidTimer?.Dispose();
+        _paidTimer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(21), Timeout.InfiniteTimeSpan);
+    }
+
+    private CustomerDisplayState DisplayState()
+    {
+        var name = Brand.DisplayName;
+        var language = Brand.Branding?.ReceiptLanguage ?? L.Language;
+        CustomerDisplayState Empty(string status) => new(status, name, Brand.LogoUrl, Brand.Primary, Brand.CurrencyCode, language, [], 0, 0, 0, 0, 0);
+
+        if (_paidShown is { } paid && DateTime.UtcNow < paid.Until && !HasItems && _existing is null)
+        {
+            return Empty("paid") with { Total = paid.Total, Paid = paid.Paid, Change = paid.Change, OrderNumber = paid.Number };
+        }
+        if (!HasItems && _existing is null) return Empty("idle");
+
+        var lines = (_existing?.Lines.Where(l => l.Status == OrderLineStatus.Active)
+                .Select(l => new CustomerDisplayLine(l.Quantity, l.Name, l.VariantName, l.LineTotal)) ?? [])
+            .Concat(_deals.Select(d => new CustomerDisplayLine(d.Quantity, d.Deal.Name, null, d.Total)))
+            .Concat(_cart.Select(l => new CustomerDisplayLine(l.Quantity, l.Item.Name,
+                string.Join(", ", new[] { l.Variant?.Name }.Concat(l.Modifiers.Select(m => m.Name)).Where(x => !string.IsNullOrEmpty(x))) is { Length: > 0 } detail ? detail : null,
+                l.Total)))
+            .ToList();
+        return _preview is { } p
+            ? Empty("cart") with { Lines = lines, Subtotal = p.Subtotal, Tax = p.TaxTotal, ServiceCharge = p.ServiceCharge, Discount = p.Discount, Total = p.Total,
+                OrderNumber = _existing?.OrderNumber }
+            : Empty("cart") with { Lines = lines, Subtotal = _existing?.Subtotal ?? lines.Sum(l => l.Total), Tax = _existing?.TaxTotal ?? 0,
+                ServiceCharge = _existing?.ServiceCharge ?? 0, Discount = _existing?.Discount ?? 0, Total = _existing?.Total ?? lines.Sum(l => l.Total),
+                OrderNumber = _existing?.OrderNumber };
+    }
+
+    /// <summary>Sends the display only what changed (it's called after every render).</summary>
+    private async Task PublishDisplayAsync()
+    {
+        var state = DisplayState();
+        var json = System.Text.Json.JsonSerializer.Serialize(state, Restaurant.Client.Core.Json.Options);
+        if (json == _displayJson) return;
+        _displayJson = json;
+        Display.Publish(state);
+        await Ui.BroadcastAsync(CustomerDisplay.Channel, json);
+    }
+
     private async Task PaidAsync()
     {
+        if (_payOrder is { } paidOrder)
+        {
+            ShowPaid(paidOrder.OrderNumber, paidOrder.Total, paidOrder.Paid, paidOrder.Payments.Sum(p => p.Change ?? 0));
+        }
         ResetCart();
         Success = T("pos.paidDone", ("number", _payOrder?.OrderNumber ?? ""));
         _tables = await Api.GetTablesAsync();
@@ -786,6 +859,7 @@ else if (_menu is not null)
 
     public async ValueTask DisposeAsync()
     {
+        _paidTimer?.Dispose();
         OfflineSync.Changed -= OnOfflineChanged;
         Live.OrdersChanged -= OnOrdersChanged;
         if (_hotkeys is { } id) await Ui.UnregisterHotkeysAsync(id);

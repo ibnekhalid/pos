@@ -910,10 +910,14 @@ Phase 5 notes:
 ### Phase 6 — Optional, after release
 - [x] Offline order capture on the desktop (outbox, per-PC provisional numbers, conflict rules). See
   docs/OFFLINE.md for how staff use it.
-- [ ] Android tablet build for waiters, a customer-facing display
-- [ ] FBR / PRA POS invoice integration (fiscal invoice number field reserved on `Receipt`)
-- [ ] Foodpanda or website orders as an order source, delivery rider assignment
-- [ ] WhatsApp receipts (Tailor Book has a `WhatsAppMessage` model), loyalty
+- [x] Waiters' tablets: the web app (installable PWA) instead of an Android build. Their kitchen tickets print
+  on the one counter PC set to "print every kitchen ticket".
+- [x] Customer-facing display (`/app/display`): a second-monitor window in the desktop app, a pop-up or tab in
+  the web app
+- [x] App downloads after sign-in ("Get the apps") and a pipeline that publishes the Windows installer
+- [ ] FBR / PRA POS invoice integration (fiscal invoice number field reserved on `Receipt`): not for now
+- [ ] Foodpanda or website orders as an order source, delivery rider assignment: not for now
+- [ ] WhatsApp receipts (Tailor Book has a `WhatsAppMessage` model), loyalty: not for now
 
 ---
 
@@ -945,6 +949,24 @@ Phase 6 notes: offline orders
 - Not done: taking orders offline in the web app; a deal, discount, split payment or adding to an open
   order while offline; the kitchen screen during an outage (the kitchen works from the printed tickets);
   an offline PIN sign-in by someone other than the person signed in.
+
+Phase 6 notes: tablets, customer display, downloads
+- No native Android app: the web app is an installable PWA (manifest, standalone display, home-screen
+  meta tags), and tablets use it. A MAUI Android build was tried and worked, but it would have added a second
+  native app to sign and release without doing anything the web app can't for a waiter. The desktop
+  project's storage and connectivity services are in `Platform/MauiStores.cs` (no Windows-only code), in case
+  one is wanted later.
+- The web app (and so a tablet) can't print silently. "Print every kitchen ticket here" (a per-PC setting) has
+  one desktop counter print every kitchen ticket not yet printed (`KitchenTicketDto.Printed` comes from the
+  `ReceiptPrint` log), 10 seconds after it is sent so the sending PC prints first. The kitchen-tickets endpoint
+  now also allows `receipts.print`. Before, a cashier's PC (no `kitchen.view`) could not print its own kitchen
+  round.
+- The customer display is local only. In the desktop app the POS and display windows share one in-process
+  service (MAUI windows are one process); in the browser the POS also sends the state over a `BroadcastChannel`
+  to `/app/display` in another tab or window. It never goes through the server, so it works offline too.
+- Downloads: `GET /api/app-releases` (signed in) and `GET /api/app-releases/{platform}` (anonymous, for the
+  update notice) read `releases.json`. `.github/workflows/apps.yml` builds the installer on a Windows runner,
+  uploads it, and writes that file last. `GET /api/desktop-release` stays for desktop apps 0.2.
 
 ## 18. Open questions (don't block Phase 1)
 

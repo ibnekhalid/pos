@@ -25,11 +25,14 @@ public class KitchenService(IApplicationDbContext db, ITenantContext tenant, Ord
 
         var orderIds = tickets.Select(t => t.OrderId).Distinct().ToList();
         var notes = await db.Orders.Where(o => orderIds.Contains(o.Id) && o.Notes != null).ToDictionaryAsync(o => o.Id, o => o.Notes, ct);
+        var ticketIds = tickets.Select(t => (Guid?)t.Id).ToList();
+        var printed = (await db.ReceiptPrints.Where(p => p.Kind == PrintKind.KitchenTicket && ticketIds.Contains(p.TicketId))
+            .Select(p => p.TicketId!.Value).Distinct().ToListAsync(ct)).ToHashSet();
         return tickets.Select(t => new KitchenTicketDto(t.Id, t.OrderId, t.OrderNumber, t.OrderType, t.TableLabel, t.StationId, t.Round, t.Status, t.IsChange,
             t.SentAt, t.StartedAt, t.ReadyAt,
             t.Items.Select(i => new KitchenTicketItemDto(i.Id, i.Quantity, i.Name,
                 i.ModifiersText is null ? [] : i.ModifiersText.Split(", ").ToList(), i.Notes, i.Cancelled)).ToList(),
-            notes.GetValueOrDefault(t.OrderId))).ToList();
+            notes.GetValueOrDefault(t.OrderId), printed.Contains(t.Id))).ToList();
     }
 
     public async Task UpdateStatusAsync(Guid ticketId, UpdateTicketStatusRequest request, CancellationToken ct)

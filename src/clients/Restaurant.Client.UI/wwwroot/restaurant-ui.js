@@ -65,3 +65,26 @@ export function unregisterHotkeys(id) {
 }
 
 export function focus(id) { document.getElementById(id)?.focus(); }
+
+// ---------- customer display: the POS and the display page talk over a BroadcastChannel (other tabs/windows) ----------
+const channels = new Map();
+let nextChannelId = 1;
+export function broadcast(name, json) {
+    try { new BroadcastChannel(name).postMessage(json); } catch { /* not supported: the in-process path still works */ }
+}
+export function listen(name, dotnetRef) {
+    try {
+        const channel = new BroadcastChannel(name);
+        channel.onmessage = e => dotnetRef.invokeMethodAsync('OnMessage', e.data);
+        const id = nextChannelId++;
+        channels.set(id, channel);
+        return id;
+    } catch { return null; }
+}
+export function unlisten(id) {
+    channels.get(id)?.close();
+    channels.delete(id);
+}
+export function openWindow(url, name) {
+    return !!window.open(url, name, 'popup,width=1024,height=768');
+}

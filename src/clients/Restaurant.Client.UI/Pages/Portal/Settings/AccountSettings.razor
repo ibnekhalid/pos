@@ -2,6 +2,8 @@
 @inherits PageBase
 @inject DeviceRegistration Device
 @inject IWindowService Window
+@inject PrintService Printer
+@inject KitchenAutoPrint KitchenPrint
 
 <PageTitle>@T("account.title")</PageTitle>
 <PageHeader Title="@T("account.title")" BackHref="app/settings" />
@@ -36,6 +38,12 @@
             <h2 class="rp-mt">@T("account.thisComputer")</h2>
             <SelectField Label="@T("account.autoLock")" Value="@Device.Prefs.AutoLockMinutes.ToString()" ValueChanged="SetAutoLockAsync"
                          Options="AutoLockOptions" Hint="@(Device.IsRegistered ? null : T("account.autoLockNeedsDevice"))" />
+            @if (Printer.SilentPrinting)
+            {
+                <CheckBox Label="@T("account.printAllKitchen")" Hint="@T("account.printAllKitchenHint")" Value="Device.Prefs.PrintAllKitchenTickets"
+                          ValueChanged="SetPrintAllAsync" />
+                @if (Device.Prefs.PrintAllKitchenTickets && KitchenPrint.LastError is { } printError) { <Notice Kind="warning">@printError</Notice> }
+            }
             @if (Window.SupportsFullScreen)
             {
                 <RpButton Variant="secondary" Icon="expand-outline" OnClick="Window.ToggleFullScreenAsync">@T("nav.fullScreen") (F11)</RpButton>
@@ -98,5 +106,10 @@
     private async Task SetAutoLockAsync(string? value)
     {
         if (int.TryParse(value, out var minutes)) await Device.SetPrefsAsync(Device.Prefs with { AutoLockMinutes = minutes });
+    }
+
+    private async Task SetPrintAllAsync(bool on)
+    {
+        await Device.SetPrefsAsync(Device.Prefs with { PrintAllKitchenTickets = on });
     }
 }

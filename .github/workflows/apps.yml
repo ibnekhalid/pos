@@ -1,0 +1,126 @@
+name: Build and publish the Windows app
+
+# Builds the Windows counter app installer, uploads it to the VM's downloads folder (/root/downloads/restaurant,
+# served at https://<site>/downloads/) and writes releases.json there. The API reads that file for the "Get the
+# apps" page and the app's update notice. Tablets and phones use the web app, so there is nothing to build for
+# them. Run it from Actions → "Build and publish the Windows app" → Run workflow, with the new version number.
+# Nothing else (the API, the database) is touched.
+#
+# Secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY (the same as the deploy).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, e.g. 0.3 (shown in the app and on the download page)'
+        required: true
+      minimum_version:
+        description: 'Optional: apps older than this are told the update is required'
+        required: false
+        default: ''
+
+concurrency:
+  group: restaurant-apps
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+  DOWNLOADS_DIR: /root/downloads/restaurant
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        shell: pwsh
+        run: |
+          if ($env:VERSION -notmatch '^\d+\.\d+(\.\d+)?$') { throw "Version must look like 0.3 or 0.3.1, not '$env:VERSION'" }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install the MAUI workload
+        run: dotnet workload install maui-windows
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          ./installer/build-installer.ps1 -Version $env:VERSION
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item "installer/output/Restaurant-POS-Setup-$env:VERSION.exe" release/
+
+      - name: Write releases.json
+        shell: pwsh
+        env:
+          MINIMUM_VERSION: ${{ inputs.minimum_version }}
+        run: |
+          $file = "Restaurant-POS-Setup-$env:VERSION.exe"
+          $path = Join-Path release $file
+          $manifest = [ordered]@{
+            windows = [ordered]@{
+              version = $env:VERSION
+              file = $file
+              minimumVersion = $(if ($env:MINIMUM_VERSION) { $env:MINIMUM_VERSION } else { $null })
+              size = (Get-Item $path).Length
+              sha256 = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+              publishedAt = (Get-Date).ToUniversalTime().ToString("o")
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 3 | Set-Content -Encoding utf8NoBOM release/releases.json
+          Get-Content release/releases.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: restaurant-windows-${{ inputs.version }}
+          path: release/
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: restaurant-windows-${{ inputs.version }}
+          path: release
+
+      - name: Upload to the VM (a staging folder first)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: 'release/*'
+          target: /root/downloads/.incoming-restaurant-${{ github.run_id }}
+          strip_components: 1
+
+      # The installer goes in first and releases.json last (a rename), so the download page never points at a
+      # file that isn't there yet. Older installers stay in the folder for anyone who still needs one.
+      - name: Publish
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DOWNLOADS_DIR
+          script: |
+            set -euo pipefail
+            incoming="/root/downloads/.incoming-restaurant-${{ github.run_id }}"
+            mkdir -p "${DOWNLOADS_DIR}"
+            find "${incoming}" -maxdepth 1 -type f ! -name releases.json -exec mv -f {} "${DOWNLOADS_DIR}/" \;
+            mv -f "${incoming}/releases.json" "${DOWNLOADS_DIR}/releases.json.new"
+            mv -f "${DOWNLOADS_DIR}/releases.json.new" "${DOWNLOADS_DIR}/releases.json"
+            chmod 644 "${DOWNLOADS_DIR}"/*
+            rm -rf "${incoming}"
+            ls -la "${DOWNLOADS_DIR}"

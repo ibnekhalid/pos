@@ -135,7 +135,9 @@
       "switchRestaurant": "Switch restaurant",
       "signOut": "Sign out",
       "reservations": "Bookings",
-      "reservationsSummary": "Table bookings, seating, and tables waiting to be cleaned."
+      "reservationsSummary": "Table bookings, seating, and tables waiting to be cleaned.",
+      "downloads": "Get the apps",
+      "downloadsSummary": "The Windows counter app, and the web app on tablets and phones."
     },
     "home": {
       "greeting": "Salaam, {name}",
@@ -182,7 +184,9 @@
       "pinSaved": "Your PIN has been saved.",
       "passwordTitle": "Password",
       "changePassword": "Change password",
-      "passwordChanged": "Your password has been changed."
+      "passwordChanged": "Your password has been changed.",
+      "printAllKitchen": "Print every kitchen ticket here",
+      "printAllKitchenHint": "Turn on for one PC per branch, next to the kitchen printer. It prints the tickets of orders from waiters' tablets and from PCs that didn't print their own."
     },
     "business": {
       "title": "Business details",
@@ -1277,6 +1281,30 @@
       "lockText": "Offline: only {name} can unlock this PC, with their PIN.",
       "wrongPin": "That PIN isn't right.",
       "noOfflinePin": "This PC can't check that PIN offline. It needs the connection to unlock."
+    },
+    "display": {
+      "open": "Customer display",
+      "openHint": "Opens the screen facing the customer (on a second monitor if there is one).",
+      "blocked": "The browser blocked the pop-up. Allow pop-ups for this site, or open /app/display on the customer screen."
+    },
+    "downloads": {
+      "title": "Get the apps",
+      "subtitle": "Install the counter app on the restaurant's Windows PCs; tablets and phones use the web app.",
+      "download": "Download version {version}",
+      "notPublished": "No version has been published yet.",
+      "thisApp": "This app: {version}",
+      "howTo": "How to install",
+      "webHint": "The web app works on any device without installing, but it can't print silently or keep taking orders when the connection drops: the counter PCs should use the Windows app.",
+      "windows": {
+        "name": "Windows counter app",
+        "for": "Counter PCs: silent receipt and kitchen printing, cash drawer, staff PIN, keeps selling offline.",
+        "steps": "Download and run the installer (Windows 10 or 11).|If Windows asks, choose More info, then Run anyway.|Open Restaurant POS, sign in, then register the PC in Settings → Counter devices.|Set the printers on the register (docs: Printing set-up)."
+      },
+      "tablet": {
+        "name": "Tablets and phones",
+        "for": "Waiters take orders at the table with the web app: nothing to download.",
+        "steps": "On the tablet, open this site in Chrome (Android) or Safari (iPad) and sign in.|Android: menu ⋮ → Install app (or Add to Home screen). iPad: Share → Add to Home Screen.|Open Restaurant POS from the home screen: it opens full screen, like an app.|At the counter PC by the kitchen printer, turn on Print every kitchen ticket here (My account), so waiters' orders print in the kitchen."
+      }
     }
   },
   "ur": {
@@ -1415,7 +1443,9 @@
       "switchRestaurant": "ریسٹورنٹ تبدیل کریں",
       "signOut": "سائن آؤٹ",
       "reservations": "بکنگ",
-      "reservationsSummary": "ٹیبل بکنگ، بٹھانا، اور صفائی کے منتظر ٹیبل۔"
+      "reservationsSummary": "ٹیبل بکنگ، بٹھانا، اور صفائی کے منتظر ٹیبل۔",
+      "downloads": "ایپس حاصل کریں",
+      "downloadsSummary": "ونڈوز کاؤنٹر ایپ، اور ٹیبلٹ و فون پر ویب ایپ۔"
     },
     "home": {
       "greeting": "السلام علیکم، {name}",
@@ -1462,7 +1492,9 @@
       "pinSaved": "آپ کا PIN محفوظ ہو گیا۔",
       "passwordTitle": "پاس ورڈ",
       "changePassword": "پاس ورڈ تبدیل کریں",
-      "passwordChanged": "آپ کا پاس ورڈ تبدیل ہو گیا۔"
+      "passwordChanged": "آپ کا پاس ورڈ تبدیل ہو گیا۔",
+      "printAllKitchen": "تمام کچن ٹکٹ یہیں پرنٹ کریں",
+      "printAllKitchenHint": "ہر برانچ میں کچن پرنٹر کے پاس ایک پی سی پر آن کریں۔ یہ ویٹرز کے ٹیبلٹ اور ان پی سیز کے آرڈرز کے ٹکٹ پرنٹ کرتا ہے جنہوں نے خود پرنٹ نہیں کیے۔"
     },
     "business": {
       "title": "کاروبار کی تفصیل",
@@ -2557,6 +2589,30 @@
       "lockText": "آف لائن: صرف {name} اپنے PIN سے یہ پی سی کھول سکتے ہیں۔",
       "wrongPin": "یہ PIN درست نہیں۔",
       "noOfflinePin": "یہ پی سی آف لائن میں یہ PIN نہیں جانچ سکتا۔ کھولنے کے لیے کنکشن درکار ہے۔"
+    },
+    "display": {
+      "open": "گاہک اسکرین",
+      "openHint": "گاہک کی طرف والی اسکرین کھولتا ہے (اگر دوسرا مانیٹر ہو تو اس پر)۔",
+      "blocked": "براؤزر نے پاپ اپ روک دیا۔ اس سائٹ کے لیے پاپ اپ کی اجازت دیں، یا گاہک اسکرین پر /app/display کھولیں۔"
+    },
+    "downloads": {
+      "title": "ایپس حاصل کریں",
+      "subtitle": "ریسٹورنٹ کے ونڈوز پی سیز پر کاؤنٹر ایپ انسٹال کریں؛ ٹیبلٹ اور فون ویب ایپ استعمال کرتے ہیں۔",
+      "download": "ورژن {version} ڈاؤن لوڈ کریں",
+      "notPublished": "ابھی کوئی ورژن شائع نہیں ہوا۔",
+      "thisApp": "یہ ایپ: {version}",
+      "howTo": "انسٹال کیسے کریں",
+      "webHint": "ویب ایپ کسی بھی ڈیوائس پر انسٹال کیے بغیر چلتی ہے، مگر خاموشی سے پرنٹ نہیں کر سکتی اور کنکشن جانے پر آرڈر نہیں لے سکتی: کاؤنٹر پی سیز پر ونڈوز ایپ استعمال کریں۔",
+      "windows": {
+        "name": "ونڈوز کاؤنٹر ایپ",
+        "for": "کاؤنٹر پی سی: خاموش رسید اور کچن پرنٹنگ، کیش دراز، عملے کا PIN، آف لائن فروخت۔",
+        "steps": "انسٹالر ڈاؤن لوڈ کر کے چلائیں (ونڈوز 10 یا 11)۔|اگر ونڈوز پوچھے تو More info پھر Run anyway چنیں۔|Restaurant POS کھولیں، سائن اِن کریں، پھر سیٹنگز → کاؤنٹر ڈیوائسز میں پی سی رجسٹر کریں۔|رجسٹر پر پرنٹرز سیٹ کریں (دستاویز: پرنٹنگ سیٹ اپ)۔"
+      },
+      "tablet": {
+        "name": "ٹیبلٹ اور فون",
+        "for": "ویٹرز ویب ایپ سے ٹیبل پر آرڈر لیتے ہیں: کچھ ڈاؤن لوڈ نہیں کرنا۔",
+        "steps": "ٹیبلٹ پر یہ سائٹ کروم (اینڈرائیڈ) یا سفاری (آئی پیڈ) میں کھولیں اور سائن اِن کریں۔|اینڈرائیڈ: مینو ⋮ ← Install app (یا Add to Home screen)۔ آئی پیڈ: Share ← Add to Home Screen۔|ہوم اسکرین سے Restaurant POS کھولیں: یہ ایپ کی طرح فل اسکرین کھلتی ہے۔|کچن پرنٹر والے کاؤنٹر پی سی پر 'تمام کچن ٹکٹ یہیں پرنٹ کریں' آن کریں (میرا اکاؤنٹ)، تاکہ ویٹرز کے آرڈر کچن میں پرنٹ ہوں۔"
+      }
     }
   }
 }

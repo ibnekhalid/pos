@@ -30,6 +30,22 @@ public sealed class UiInterop(IJSRuntime js) : IAsyncDisposable
         try { await (await Module()).InvokeVoidAsync("focus", id); } catch (JSException) { /* gone */ }
     }
 
+    public async Task BroadcastAsync(string channel, string json)
+    {
+        try { await (await Module()).InvokeVoidAsync("broadcast", channel, json); } catch (JSException) { /* no BroadcastChannel */ }
+    }
+
+    public async Task<int?> ListenAsync<T>(string channel, DotNetObjectReference<T> target) where T : class =>
+        await (await Module()).InvokeAsync<int?>("listen", channel, target);
+
+    public async Task UnlistenAsync(int id)
+    {
+        try { await (await Module()).InvokeVoidAsync("unlisten", id); } catch (JSDisconnectedException) { /* page closing */ }
+    }
+
+    /// <summary>A pop-up window (the customer display in the web app). False when the browser blocked it.</summary>
+    public async Task<bool> OpenWindowAsync(string url, string name) => await (await Module()).InvokeAsync<bool>("openWindow", url, name);
+
     public async ValueTask DisposeAsync()
     {
         if (_module is { IsCompletedSuccessfully: true })

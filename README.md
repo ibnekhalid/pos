@@ -92,7 +92,9 @@ The **desktop app on a registered counter PC** keeps taking orders when the conn
 them itself, prints the tickets, and sends them when the connection is back. Anything that doesn't match
 is flagged for a manager to check. See [docs/OFFLINE.md](docs/OFFLINE.md).
 
-The web app is online-only. Its service worker caches the app itself so it opens fast, but it doesn't
+Waiters use the web app on tablets or phones: it can be added to the home screen like an app (**Get the
+apps** in the menu). The Windows installer is downloaded from the same page. A second screen can show the
+customer their order (**Customer display** on the POS). The web app is online-only. Its service worker caches the app itself so it opens fast, but it doesn't
 queue orders.
 
 ## Deployment

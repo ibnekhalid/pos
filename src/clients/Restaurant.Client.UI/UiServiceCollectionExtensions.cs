@@ -18,6 +18,9 @@ public static class UiServiceCollectionExtensions
         services.TryAddScoped<IReceiptPrinter>(sp => sp.GetRequiredService<HtmlReceiptPrinter>());
         services.AddScoped<PrintService>();
         services.AddScoped<StockAlerts>();
+        services.AddScoped<KitchenAutoPrint>();
+        // One per app, not per window: the desktop app's display window shares it with the POS window.
+        services.AddSingleton<CustomerDisplay>();
         return services;
     }
 }

@@ -78,6 +78,10 @@ services:
       DesktopRelease__LatestVersion: ${DESKTOP_LATEST_VERSION:-}
       DesktopRelease__DownloadUrl: ${DESKTOP_DOWNLOAD_URL:-}
       DesktopRelease__MinimumVersion: ${DESKTOP_MINIMUM_VERSION:-}
+      # The apps people can install ("Get the apps" page, update notices): releases.json in the downloads folder,
+      # written by .github/workflows/apps.yml next to the installer and the APK.
+      Downloads__ManifestPath: /srv/downloads/releases.json
+      Downloads__PublicBaseUrl: ${PUBLIC_SITE_URL}/downloads/
     expose:
       - '8080'
     ports:
@@ -92,6 +96,7 @@ services:
     volumes:
       - uploads:/app/uploads
       - logs:/app/logs
+      - ${DOWNLOADS_DIR:-/root/downloads/restaurant}:/srv/downloads:ro
     networks:
       - internal
 

@@ -48,6 +48,12 @@ public interface IWindowService
 {
     bool SupportsFullScreen { get; }
     Task ToggleFullScreenAsync();
+
+    /// <summary>
+    /// Opens the customer-facing display in a window of its own (desktop: full screen on the second monitor).
+    /// False where the host can't, and the screens open a browser window instead.
+    /// </summary>
+    Task<bool> OpenCustomerDisplayAsync() => Task.FromResult(false);
 }
 
 public enum PrintTarget

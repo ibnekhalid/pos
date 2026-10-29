@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Restaurant.Api.Services;
 using Restaurant.Contracts.System;
 
 namespace Restaurant.Api.Controllers;
 
 [ApiController]
 [Route("api")]
-public class SystemController(IHostEnvironment environment, IConfiguration configuration) : ControllerBase
+public class SystemController(IHostEnvironment environment, AppReleases releases) : ControllerBase
 {
     /// <summary>Lets the clients check they can reach the API (no sign-in needed).</summary>
     [HttpGet("info")]
@@ -17,20 +18,21 @@ public class SystemController(IHostEnvironment environment, IConfiguration confi
         return new ApiInfoDto("Restaurant POS API", version, environment.EnvironmentName);
     }
 
-    /// <summary>
-    /// The newest desktop app, for its update notice (no sign-in needed: it's checked on start-up).
-    /// From configuration (DesktopRelease__LatestVersion etc. in production), read on each call.
-    /// </summary>
+    /// <summary>The apps people can download and install (the "Get the apps" page, after sign-in).</summary>
+    [HttpGet("app-releases")]
+    [Authorize]
+    public Task<IReadOnlyList<AppReleaseDto>> AppReleases(CancellationToken ct) => releases.ListAsync(ct);
+
+    /// <summary>The newest app for one platform ("windows"), for its update notice (no sign-in needed).</summary>
+    [HttpGet("app-releases/{platform}")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AppReleaseDto>> AppRelease(string platform, CancellationToken ct) =>
+        await releases.FindAsync(platform, ct) is { } release ? release : NoContent();
+
+    /// <summary>The Windows app's release in its first shape (desktop apps up to 0.2 check this).</summary>
     [HttpGet("desktop-release")]
     [AllowAnonymous]
-    public ActionResult<DesktopReleaseDto> DesktopRelease()
-    {
-        var section = configuration.GetSection("DesktopRelease");
-        return new DesktopReleaseDto(
-            NullIfBlank(section["LatestVersion"]),
-            NullIfBlank(section["DownloadUrl"]),
-            NullIfBlank(section["MinimumVersion"]));
-    }
+    public async Task<ActionResult<DesktopReleaseDto>> DesktopRelease(CancellationToken ct) =>
+        await releases.FindAsync("windows", ct) is { } r ? new DesktopReleaseDto(r.Version, r.DownloadUrl, r.MinimumVersion) : new DesktopReleaseDto(null, null, null);
 
-    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

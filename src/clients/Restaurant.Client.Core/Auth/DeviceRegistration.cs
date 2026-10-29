@@ -8,7 +8,8 @@ public record DeviceInfo(Guid DeviceId, string Name, Guid BranchId, Guid TenantI
 
 /// <summary>Per-device preferences that survive sign-out.</summary>
 /// <param name="AutoLockMinutes">Lock the screen after this many idle minutes; 0 = never.</param>
-public record DevicePrefs(int AutoLockMinutes = 5);
+/// <param name="PrintAllKitchenTickets">This PC prints every new kitchen ticket of the branch (orders from tablets and other PCs).</param>
+public record DevicePrefs(int AutoLockMinutes = 5, bool PrintAllKitchenTickets = false);
 
 /// <summary>
 /// Keeps the device token (secure storage) and its details. The token is the only thing that lets

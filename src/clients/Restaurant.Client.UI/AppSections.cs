@@ -26,7 +26,8 @@ public static class AppSections
         new("reports", "nav.reports", "bar-chart-outline", 5, "nav.reportsSummary",
             [Permissions.Reports.Sales, Permissions.Reports.Financial, Permissions.Reports.Inventory], true),
         new("staff", "nav.staff", "people-circle-outline", 2, "nav.staffSummary", [Permissions.Staff.View], true),
-        new("settings", "nav.settings", "settings-outline", 2, "nav.settingsSummary", [], true)
+        new("settings", "nav.settings", "settings-outline", 2, "nav.settingsSummary", [], true),
+        new("downloads", "nav.downloads", "download-outline", 6, "nav.downloadsSummary", [], true)
     ];
 
     public static Section? Find(string slug) => All.FirstOrDefault(s => s.Slug == slug);

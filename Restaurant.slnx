@@ -24,6 +24,7 @@
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
     <File Path=".github/workflows/deploy.yml" />
+    <File Path=".github/workflows/apps.yml" />
     <File Path="devops/docker-compose.yml" />
     <File Path="devops/Dockerfile" />
   </Folder>

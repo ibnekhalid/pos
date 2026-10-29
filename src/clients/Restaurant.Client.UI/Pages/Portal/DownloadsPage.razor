@@ -1,0 +1,81 @@
+@page "/app/downloads"
+@inherits PageBase
+@inject IPlatformInfo Platform
+@using Restaurant.Contracts.System
+@* The Windows counter app to install (Phase 6), and how to put the web app on a tablet or phone. *@
+
+<PageTitle>@T("nav.downloads")</PageTitle>
+<PageHeader Title="@T("downloads.title")" Subtitle="@T("downloads.subtitle")" />
+
+@if (Loading)
+{
+    <Loading />
+}
+else
+{
+    @if (Error is not null) { <Notice Kind="danger" Class="rp-mb">@Error</Notice> }
+    <div class="rp-grid-2 rp-align-start">
+        @foreach (var app in Apps)
+        {
+            var release = _releases.FirstOrDefault(r => r.Platform == app.Platform);
+            <section class="rp-panel rp-app-card">
+                <div class="rp-row rp-mb">
+                    <Icon Name="@app.Icon" Size="40" Color="var(--rp-primary)" />
+                    <div class="rp-grow">
+                        <h2 style="margin:0">@T($"downloads.{app.Platform}.name")</h2>
+                        <div class="rp-hint">@T($"downloads.{app.Platform}.for")</div>
+                    </div>
+                    @if (InstalledHere(app.Platform)) { <Badge Kind="success">@T("downloads.thisApp", ("version", Platform.AppVersion ?? ""))</Badge> }
+                </div>
+                @if (release is null)
+                {
+                    <Notice>@T("downloads.notPublished")</Notice>
+                }
+                else
+                {
+                    <a class="rp-btn block" href="@release.DownloadUrl" download><Icon Name="download-outline" /> @T("downloads.download", ("version", release.Version))</a>
+                    <p class="rp-hint rp-mt-sm">
+                        @(release.SizeBytes is { } size ? $"{size / 1024d / 1024d:0.#} MB · " : "")@(release.PublishedAt is { } at ? Format.Date(at) : "")
+                        @if (release.Sha256 is not null) { <span class="rp-nowrap" title="@release.Sha256" dir="ltr"> · SHA-256 @release.Sha256[..12]…</span> }
+                    </p>
+                }
+                <h3 class="rp-mt">@T("downloads.howTo")</h3>
+                <ol class="rp-steps">
+                    @foreach (var step in T($"downloads.{app.Platform}.steps").Split('|'))
+                    {
+                        <li>@step</li>
+                    }
+                </ol>
+            </section>
+        }
+        <section class="rp-panel rp-app-card">
+            <div class="rp-row rp-mb">
+                <Icon Name="tablet-portrait-outline" Size="40" Color="var(--rp-primary)" />
+                <div class="rp-grow">
+                    <h2 style="margin:0">@T("downloads.tablet.name")</h2>
+                    <div class="rp-hint">@T("downloads.tablet.for")</div>
+                </div>
+            </div>
+            <h3>@T("downloads.howTo")</h3>
+            <ol class="rp-steps">
+                @foreach (var step in T("downloads.tablet.steps").Split('|'))
+                {
+                    <li>@step</li>
+                }
+            </ol>
+        </section>
+    </div>
+    <p class="rp-hint">@T("downloads.webHint")</p>
+}
+
+@code {
+    private sealed record App(string Platform, string Icon);
+
+    private static readonly App[] Apps = [new("windows", "desktop-outline")];
+
+    private IReadOnlyList<AppReleaseDto> _releases = [];
+
+    protected override async Task LoadAsync() => _releases = await Api.GetAppReleasesAsync();
+
+    private bool InstalledHere(string platform) => Platform.AppVersion is not null && platform == "windows";
+}

@@ -92,6 +92,29 @@ place of the Urdu line. Use the PDF or browser print there.
 | The first print after a while is slow | The printer was asleep (USB power saving); see step 2 of the counter PC set-up |
 | Kitchen tickets print at the counter | *Kitchen printer* is empty or has the same name as the receipt printer |
 
+### Waiters' tablets and the kitchen printer
+
+Waiters take orders on tablets or phones with the web app (*Get the apps* in the menu shows how to add it to
+the home screen). A tablet can't print, and neither can a PC with no kitchen printer set. So that their
+orders still reach the kitchen on paper, pick **one** counter PC per branch that has the kitchen printer, and
+turn on **Settings → My account → Print every kitchen ticket here**. That PC then prints every new kitchen
+ticket nobody has printed yet. It waits about 10 seconds first, so a PC that prints its own tickets always goes
+first. Turn it on on one PC only, or a ticket may print twice. The person signed in there needs kitchen.view
+or receipts.print (Cashier has it).
+
+### Customer display
+
+A screen facing the customer shows the order as it's rung up, the total, and the change after a cash payment.
+When no order is being rung up it shows the logo and a welcome.
+
+- **Desktop app:** on the POS, press **Customer display**. With a second monitor attached it opens there,
+  full screen. With one monitor it opens as a window to drag where it's needed.
+- **Web app:** the same button opens a pop-up window (allow pop-ups for the site). Or open `/app/display`
+  in another tab or window of the same browser, on a second screen.
+
+The display needs no sign-in and only shows what the POS sends it. It doesn't work across two separate
+computers.
+
 ### Checklist for a new counter
 
 - [ ] Windows test page prints on each printer
@@ -101,6 +124,10 @@ place of the Urdu line. Use the PDF or browser print there.
 - [ ] Send to kitchen: the ticket prints on the kitchen printer (or the kitchen display shows it)
 - [ ] Reprint shows "DUPLICATE — REPRINT #1"
 - [ ] Unplug the network for a moment: the app says it can't reach the server, then recovers
+- [ ] Unplug it for longer and take a cash order: it saves offline (`K7-01`-style number), prints, and
+      sends itself when the network is back (docs/OFFLINE.md)
+- [ ] Customer display opens on the second monitor and shows the order and the change
+- [ ] On the PC set to print every kitchen ticket: an order taken on a tablet prints in the kitchen
 
 ## Web app
 

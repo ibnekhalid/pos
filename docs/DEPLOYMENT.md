@@ -121,34 +121,40 @@ page offers "all users" for a shared PC. An update closes the running app, repla
 and keeps the sign-in, device registration and preferences, which live in the user's AppData.
 Uninstalling also keeps them.
 
-### Desktop app releases (update check)
+### Desktop app releases (download page and update check)
 
-On start-up the desktop app calls `GET /api/desktop-release` (anonymous). If the version there is newer
-than its own, it shows a notice with a download link at the top of every screen. The notice never blocks
-the till. A cashier can dismiss it until the next start, and it turns red ("update required") when the
-app is older than the minimum version.
+Signed-in users download the Windows counter app from **Get the apps** (`/app/downloads`). There, tablets
+and phones are shown how to add the web app to their home screen; there is no separate mobile app. On
+start-up the desktop app checks `GET /api/app-releases/windows` (anonymous). If a newer version is
+published, it shows a notice with a download link at the top of every screen. The notice never blocks the
+till: a cashier can dismiss it until the next start, and it turns red ("update required") when the app is
+older than the minimum version.
+
+Both read `releases.json` in the downloads folder: `/root/downloads/restaurant`, served at `/downloads/` by
+rp-web and mounted read-only into rp-api.
 
 To publish a release:
 
-1. Copy the installer to the VM. rp-web serves `/root/downloads/restaurant` read-only at `/downloads/`:
-   ```bash
-   scp installer/output/Restaurant-POS-Setup-0.3.exe root@<vm>:/root/downloads/restaurant/
-   ```
-2. Under **Settings → Secrets and variables → Actions → Variables**, set:
+1. In GitHub go to **Actions → Build and publish the Windows app → Run workflow**. Enter the version (for
+   example `0.3`) and, optionally, a minimum version.
+2. The workflow (`.github/workflows/apps.yml`) runs on a Windows runner. It installs Inno Setup, builds
+   `Restaurant-POS-Setup-<version>.exe`, and uploads it to the VM. It writes `releases.json` (version, size,
+   SHA-256) last, so the page never links to a file that isn't there yet. It uses the same `SSH_*` secrets as
+   the deploy and doesn't touch the API or the database.
+3. Check it with `curl https://api.restaurant.dsnoopdoc.com/api/app-releases/windows`.
 
-   | Variable | Example |
-   |---|---|
-   | `RP_DESKTOP_LATEST_VERSION` | `0.3` |
-   | `RP_DESKTOP_DOWNLOAD_URL` | `https://restaurant.dsnoopdoc.com/downloads/Restaurant-POS-Setup-0.3.exe` |
-   | `RP_DESKTOP_MINIMUM_VERSION` | optional, for example `0.2` |
+Older installers stay in the folder. Delete them by hand once every counter has updated.
 
-   Values go into `.env` unquoted, so use a plain URL with no spaces or `&`.
-3. Re-run the deploy workflow. The API reads `DesktopRelease__*` from `.env` through
-   `devops/docker-compose.yml`.
-4. Check it with `curl https://api.restaurant.dsnoopdoc.com/api/desktop-release`.
+To publish by hand instead, copy the installer to `/root/downloads/restaurant/` and write `releases.json`
+next to it:
 
-If the variables are empty, the endpoint returns nulls and no notice is shown. Keep the previous
-installer in `/root/downloads/restaurant` until every counter has updated.
+```json
+{ "windows": { "version": "0.3", "file": "Restaurant-POS-Setup-0.3.exe", "minimumVersion": null } }
+```
+
+The older repo variables `RP_DESKTOP_LATEST_VERSION` / `RP_DESKTOP_DOWNLOAD_URL` /
+`RP_DESKTOP_MINIMUM_VERSION` still work. When they are set they override the Windows entry (after a
+re-deploy).
 
 ## Backups
 

@@ -455,3 +455,25 @@ textarea.rp-input { resize: vertical; }
 .rp-offline-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600;
     background: var(--rp-primary-soft); color: var(--rp-primary); text-decoration: none; margin-inline-end: 8px; }
 .rp-offline-chip.down { background: #FEF3C7; color: var(--rp-warning); }
+
+/* ---------- Phase 6: customer display (a screen facing the customer, read from a distance) */
+.rp-cd { position: fixed; inset: 0; display: flex; flex-direction: column; background: #fff; color: #111; font-size: clamp(18px, 2.4vw, 34px); }
+.rp-cd-idle { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4em; text-align: center;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--rp-primary) 12%, #fff), #fff 70%); }
+.rp-cd-idle h1 { font-size: 2.2em; margin: 0; color: var(--rp-primary); }
+.rp-cd-idle p { margin: 0; color: #555; }
+.rp-cd-logo { max-height: 30vh; max-width: 60vw; object-fit: contain; }
+.rp-cd-logo.small { max-height: 1.6em; }
+.rp-cd-head { display: flex; align-items: center; gap: .6em; padding: .5em 1em; background: var(--rp-primary); color: #fff; font-weight: 700; }
+.rp-cd-lines { flex: 1; overflow: hidden; padding: .4em 1em; display: flex; flex-direction: column; justify-content: flex-end; }
+.rp-cd-line { display: flex; gap: .6em; padding: .25em 0; border-bottom: 1px solid #eee; font-variant-numeric: tabular-nums; }
+.rp-cd-line small { display: block; color: #666; font-size: .65em; }
+.rp-cd-qty { min-width: 2.5em; color: #666; }
+.rp-cd-totals { padding: .6em 1em .9em; background: #f6f6f6; border-top: 2px solid #ddd; }
+.rp-cd-row { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.rp-cd-row.big { font-size: 1.6em; font-weight: 800; }
+.rp-cd-row.accent { color: var(--rp-primary); }
+.rp-cd-paid { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: .3em; padding: 1em 15%; }
+.rp-cd-paid h1 { text-align: center; color: var(--rp-primary); font-size: 2em; margin: 0 0 .4em; }
+.rp-steps { margin: 0; padding-inline-start: 1.2em; display: flex; flex-direction: column; gap: 6px; color: var(--rp-text); }
+.rp-btn.block { display: flex; justify-content: center; }

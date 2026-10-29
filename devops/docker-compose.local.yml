@@ -16,6 +16,9 @@ services:
       pull: false
     environment:
       FileStorage__PublicBaseUrl: http://localhost:${WEB_PORT:-8096}/uploads
+      Downloads__PublicBaseUrl: http://localhost:${WEB_PORT:-8096}/downloads/
+    volumes:
+      - ${DOWNLOADS_DIR:-./installer/output}:/srv/downloads:ro
 
   rp-web:
     build:
